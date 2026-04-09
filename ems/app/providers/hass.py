@@ -32,16 +32,20 @@ class HomeAssistantClient:
     async def get_all_states(self) -> List[Dict[str, Any]]:
         """Fetch all entity states for discovery."""
         url = f"{self.base_url}/api/states"
+        print(f"DEBUG: Calling HA API (discovery): {url}")
         logger.info(f"Discovery: fetching all states from {url}")
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(url, headers=self.headers, timeout=10.0)
+                print(f"DEBUG: HA Response Status: {response.status_code}")
                 logger.info(f"Discovery: received response {response.status_code}")
                 response.raise_for_status()
                 data = response.json()
+                print(f"DEBUG: Found {len(data)} entities")
                 logger.info(f"Discovery: found {len(data)} entities")
                 return data
             except httpx.HTTPError as e:
+                print(f"DEBUG: HA ERROR: {e}")
                 logger.error(f"Error fetching all states from {url}: {e}")
                 if hasattr(e, 'response') and e.response:
                     logger.error(f"Response body: {e.response.text}")

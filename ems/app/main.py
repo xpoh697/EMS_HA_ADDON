@@ -25,6 +25,9 @@ guardian = PowerGuardian(max_grid_power_w=11000.0)
 
 # HA Client using Supervisor Token
 ha_token = os.environ.get("SUPERVISOR_TOKEN", "REPLACE_ME")
+print(f"DEBUG: SUPERVISOR_TOKEN found: {ha_token != 'REPLACE_ME'}")
+if ha_token != 'REPLACE_ME':
+    print(f"DEBUG: Token starts with: {ha_token[:10]}...")
 ha_client = HomeAssistantClient(base_url="http://supervisor/core", token=ha_token)
 
 # Dynamic Handlers
