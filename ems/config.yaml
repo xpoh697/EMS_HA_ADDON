@@ -4,6 +4,7 @@ version: "1.0.0"
 slug: "ems"
 url: "https://github.com/xpoh697/EMS_HA_ADDON"
 maintainer: "Expert EMS Team"
+hassio_api: true
 init: false
 
 arch:
