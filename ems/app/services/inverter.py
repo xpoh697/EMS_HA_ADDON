@@ -56,10 +56,10 @@ class InverterController:
             
         return new_state
 
-    # Condition placeholders (to be expanded with actual math and logic)
     def _should_buy(self, s): 
         # Price is negative or very low AND battery not full
-        return s.get("grid_price", 0) <= 0 and s.get("battery_soc", 100) < 95
+        # Use BUY price
+        return s.get("buy_price", 0) <= 0 and s.get("battery_soc", 100) < 95
 
     def _is_emergency_soc(self, s):
         # Battery below survival threshold
@@ -76,8 +76,11 @@ class InverterController:
         return True # Default condition
 
     def _is_high_price_no_charge(self, s):
-        return s.get("grid_price", 0) > s.get("high_price_threshold", 50)
+        # High price threshold - use BUY price
+        return s.get("buy_price", 0) > s.get("high_price_threshold", 50)
 
     def _should_sell_battery(self, s):
         # Price is peak AND battery is above target AND forecast is good
-        return s.get("grid_price", 0) >= s.get("peak_price_threshold", 100)
+        # Use SELL price
+        return s.get("sell_price", 0) >= s.get("peak_price_threshold", 100)
+

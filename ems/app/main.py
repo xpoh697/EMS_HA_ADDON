@@ -52,8 +52,78 @@ def load_handlers():
     handlers = new_handlers
     logger.info(f"Loaded {len(handlers)} handlers from database.")
 
-# Load on startup
-load_handlers()
+# State
+current_sensors = {
+    "battery_soc": 0, "solar_power": 0, "buy_price": 0, "sell_price": 0, "house_power": 0,
+    "survival_soc": 20, "price_tomorrow": 0
+}
+
+def get_sensor_value(state_obj: dict, attr_name: str = None):
+    """Extract value from state or attribute."""
+    if not state_obj: return 0
+    try:
+        if attr_name and attr_name in state_obj.get("attributes", {}):
+            return float(state_obj["attributes"][attr_name])
+        return float(state_obj.get("state", 0))
+    except (ValueError, TypeError):
+        return 0
+
+async def sensor_poller():
+    """Background task to fetch sensors from HA."""
+    while True:
+        try:
+            db = SessionLocal()
+            setting = db.query(SystemSetting).filter(SystemSetting.key == "global_sensors").first()
+            db.close()
+            
+            if setting:
+                config = setting.value
+                # Map keys to sensor names
+                mapping = {
+                    "soc": "battery_soc",
+                    "solar": "solar_power",
+                    "buy_price": "buy_price",
+                    "sell_price": "sell_price",
+                    "house_power": "house_power"
+                }
+                
+                for cfg_key, sensor_key in mapping.items():
+                    entity_id = config.get(cfg_key)
+                    if entity_id:
+                        state_obj = await ha_client.get_state(entity_id)
+                        attr_name = config.get(f"{cfg_key}_attr")
+                        current_sensors[sensor_key] = get_sensor_value(state_obj, attr_name)
+                        
+                        # Extra: If it's a price sensor, check for tomorrow
+                        if "price" in cfg_key and state_obj:
+                            tomorrow = state_obj.get("attributes", {}).get("price_tomorrow")
+                            if tomorrow is not None:
+                                current_sensors["price_tomorrow"] = tomorrow
+
+            # 1. Update Survival SOC
+            target_soc = occupancy.calculate_target_soc(current_sensors, 10.0) # Assume 10kWh if not set
+            current_sensors["survival_soc"] = target_soc
+            
+            # 2. Decide Inverter State
+            state = inverter.update_state(current_sensors)
+            
+            # 3. Energy Comfort availability
+            # Logic: Can use energy if selling or if buy price is zero/negative
+            can_use_energy = state.value in [5, 6, 7] or (state.value == 1 and current_sensors["buy_price"] <= 0)
+            
+            # 4. Coordinate Loads via Guardian
+            guardian.coordinate(handlers, current_sensors, can_use_energy)
+            
+        except Exception as e:
+            logger.error(f"Error in sensor poller: {e}")
+            
+        await asyncio.sleep(10) # Poll every 10 seconds
+
+import asyncio
+@app.on_event("startup")
+async def startup_event():
+    load_handlers()
+    asyncio.create_task(sensor_poller())
 
 @app.get("/api/ha/entities")
 async def get_ha_entities():
@@ -84,30 +154,6 @@ async def save_settings(data: dict):
     # Refresh handlers in memory
     load_handlers()
     return {"status": "ok"}
-
-@app.post("/api/update")
-async def update_sensors(sensors: dict):
-    global current_sensors
-    current_sensors.update(sensors)
-    
-    # 1. Update Survival SOC
-    target_soc = occupancy.calculate_target_soc(current_sensors, sensors.get("battery_capacity", 10.0))
-    current_sensors["survival_soc"] = target_soc
-    
-    # 2. Decide Inverter State
-    state = inverter.update_state(current_sensors)
-    
-    # 3. Energy Comfort availability
-    can_use_energy = state in [5, 6] or (state == 1 and current_sensors.get("grid_price", 0) <= 0)
-    
-    # 4. Coordinate Loads via Guardian
-    load_commands = guardian.coordinate(handlers, current_sensors, can_use_energy)
-    
-    return {
-        "inverter_state": state.name,
-        "survival_soc": target_soc,
-        "load_commands": load_commands
-    }
 
 @app.get("/api/dashboard")
 async def get_dashboard():
