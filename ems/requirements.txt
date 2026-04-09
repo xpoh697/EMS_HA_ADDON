@@ -3,4 +3,3 @@ uvicorn
 sqlalchemy
 httpx
 python-dotenv
-bashio
