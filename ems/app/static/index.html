@@ -250,7 +250,7 @@
 
                 const fetchData = async () => {
                     try {
-                        const res = await fetch('/api/dashboard');
+                        const res = await fetch('api/dashboard');
                         dashboard.value = await res.json();
                     } catch (e) {
                         console.error("Dashboard poll failed");
@@ -258,7 +258,7 @@
                 };
 
                 const fetchSettings = async () => {
-                    const res = await fetch('/api/settings');
+                    const res = await fetch('api/settings');
                     const data = await res.json();
                     if (data.global_sensors) settings.value.global_sensors = data.global_sensors;
                     if (data.loads) settings.value.loads = data.loads;
@@ -266,12 +266,13 @@
                 };
 
                 const fetchEntities = async () => {
-                    const res = await fetch('/api/ha/entities');
+                    console.log("DEBUG: Fetching entities via api/ha/entities");
+                    const res = await fetch('api/ha/entities');
                     entities.value = await res.json();
                 };
 
                 const saveSettings = async () => {
-                    await fetch('/api/settings', {
+                    await fetch('api/settings', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ ...settings.value, lang: lang.value })

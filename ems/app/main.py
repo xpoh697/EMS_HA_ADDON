@@ -131,6 +131,7 @@ async def startup_event():
 @app.get("/api/ha/entities")
 async def get_ha_entities():
     """Proxy to HA to get all entities for the UI dropdowns."""
+    print("DEBUG: /api/ha/entities was HIT by the browser!")
     states = await ha_client.get_all_states()
     return [{"id": s["entity_id"], "name": s.get("attributes", {}).get("friendly_name", s["entity_id"])} for s in states]
 
