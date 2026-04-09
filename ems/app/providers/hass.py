@@ -16,6 +16,7 @@ class HomeAssistantClient:
             "Content-Type": "application/json",
         }
 
+
     async def get_state(self, entity_id: str) -> Optional[Dict[str, Any]]:
         """Fetch the current state of a Home Assistant entity."""
         url = f"{self.base_url}/api/states/{entity_id}"
@@ -31,13 +32,19 @@ class HomeAssistantClient:
     async def get_all_states(self) -> List[Dict[str, Any]]:
         """Fetch all entity states for discovery."""
         url = f"{self.base_url}/api/states"
+        logger.info(f"Discovery: fetching all states from {url}")
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.get(url, headers=self.headers)
+                response = await client.get(url, headers=self.headers, timeout=10.0)
+                logger.info(f"Discovery: received response {response.status_code}")
                 response.raise_for_status()
-                return response.json()
+                data = response.json()
+                logger.info(f"Discovery: found {len(data)} entities")
+                return data
             except httpx.HTTPError as e:
-                logger.error(f"Error fetching all states: {e}")
+                logger.error(f"Error fetching all states from {url}: {e}")
+                if hasattr(e, 'response') and e.response:
+                    logger.error(f"Response body: {e.response.text}")
                 return []
 
 
