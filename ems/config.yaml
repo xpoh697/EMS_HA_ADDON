@@ -1,10 +1,11 @@
 name: "Energy Management System (EMS)"
 description: "Smart energy management for homes with Solar, Battery and Dynamic Tariffs."
-version: "1.0.2"
+version: "1.0.3"
 slug: "ems"
 url: "https://github.com/xpoh697/EMS_HA_ADDON"
 maintainer: "Expert EMS Team"
 hassio_api: true
+hassio_role: manager
 init: false
 
 arch:
