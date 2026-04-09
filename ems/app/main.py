@@ -1,13 +1,15 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from app.services.inverter import InverterController
 from app.services.boiler import BoilerManager
 from app.services.loads import CyclicLoadHandler
 from app.services.occupancy import OccupancyEngine
 from app.services.guardian import PowerGuardian
-from app.models.database import init_db
+from app.providers.hass import HomeAssistantClient
+from app.models.database import init_db, SessionLocal, SystemSetting
 import logging
 import os
+import json
 
 # Setup
 logging.basicConfig(level=logging.INFO)
@@ -21,15 +23,67 @@ inverter = InverterController(dry_run=True)
 occupancy = OccupancyEngine()
 guardian = PowerGuardian(max_grid_power_w=11000.0)
 
-# Modular Load Handlers
-handlers = [
-    BoilerManager(name="Boiler", entity_id="switch.boiler", priority=5),
-    CyclicLoadHandler(name="Washing Machine", entity_id="switch.washer", priority=10),
-    CyclicLoadHandler(name="Dishwasher", entity_id="switch.dishwasher", priority=15)
-]
+# HA Client using Supervisor Token
+ha_token = os.environ.get("SUPERVISOR_TOKEN", "REPLACE_ME")
+ha_client = HomeAssistantClient(base_url="http://supervisor/core", token=ha_token)
 
-# State
-current_sensors = {}
+# Dynamic Handlers
+handlers = []
+
+def load_handlers():
+    """Load load managers from database config."""
+    global handlers
+    db = SessionLocal()
+    setting = db.query(SystemSetting).filter(SystemSetting.key == "loads").first()
+    db.close()
+    
+    new_handlers = []
+    if setting:
+        load_configs = setting.value  # List of dicts
+        for cfg in load_configs:
+            if cfg["type"] == "boiler":
+                h = BoilerManager(name=cfg["name"], entity_id=cfg["entity_id"], priority=cfg["priority"])
+                h.target_temp = cfg.get("target_temp", 60)
+                new_handlers.append(h)
+            elif cfg["type"] == "cyclic":
+                h = CyclicLoadHandler(name=cfg["name"], entity_id=cfg["entity_id"], priority=cfg["priority"])
+                new_handlers.append(h)
+    
+    handlers = new_handlers
+    logger.info(f"Loaded {len(handlers)} handlers from database.")
+
+# Load on startup
+load_handlers()
+
+@app.get("/api/ha/entities")
+async def get_ha_entities():
+    """Proxy to HA to get all entities for the UI dropdowns."""
+    states = await ha_client.get_all_states()
+    return [{"id": s["entity_id"], "name": s.get("attributes", {}).get("friendly_name", s["entity_id"])} for s in states]
+
+@app.get("/api/settings")
+async def get_settings():
+    db = SessionLocal()
+    settings = db.query(SystemSetting).all()
+    db.close()
+    return {s.key: s.value for s in settings}
+
+@app.post("/api/settings")
+async def save_settings(data: dict):
+    db = SessionLocal()
+    for key, value in data.items():
+        setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+        if not setting:
+            setting = SystemSetting(key=key, value=value)
+            db.add(setting)
+        else:
+            setting.value = value
+    db.commit()
+    db.close()
+    
+    # Refresh handlers in memory
+    load_handlers()
+    return {"status": "ok"}
 
 @app.post("/api/update")
 async def update_sensors(sensors: dict):

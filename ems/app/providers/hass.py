@@ -1,6 +1,6 @@
 import httpx
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,19 @@ class HomeAssistantClient:
             except httpx.HTTPError as e:
                 logger.error(f"Error fetching state for {entity_id}: {e}")
                 return None
+
+    async def get_all_states(self) -> List[Dict[str, Any]]:
+        """Fetch all entity states for discovery."""
+        url = f"{self.base_url}/api/states"
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(url, headers=self.headers)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPError as e:
+                logger.error(f"Error fetching all states: {e}")
+                return []
+
 
     async def call_service(self, domain: str, service: str, service_data: Dict[str, Any]) -> bool:
         """Call a Home Assistant service."""

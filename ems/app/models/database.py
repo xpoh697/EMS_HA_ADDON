@@ -29,6 +29,12 @@ class Profile(Base):
     hour = Column(Integer)  # 0-23
     mean_value = Column(Float)
 
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+    key = Column(String, primary_key=True)
+    value = Column(JSON)
+
+
 # Database setup
 engine = create_engine("sqlite:///ems_data.db", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
