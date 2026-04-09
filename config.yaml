@@ -2,7 +2,10 @@ name: "Energy Management System (EMS)"
 description: "Smart energy management for homes with Solar, Battery and Dynamic Tariffs."
 version: "1.0.0"
 slug: "ems"
+url: "https://github.com/user/ems-addon"
+maintainer: "Expert EMS Team"
 init: false
+
 arch:
   - aarch64
   - amd64

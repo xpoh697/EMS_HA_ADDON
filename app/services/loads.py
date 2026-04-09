@@ -1,60 +1,50 @@
+from app.services.base import BaseLoadHandler
 import logging
-from typing import Dict, Any, List
-from app.models.enums import InverterState
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
-class CyclicLoad:
-    def __init__(self, entity_id: str, priority: int = 1):
-        self.entity_id = entity_id
-        self.priority = priority
+class CyclicLoadHandler(BaseLoadHandler):
+    """
+    Manages a single cyclic load (washing machine, dishwasher).
+    Inherits from BaseLoadHandler to fit into the modular EMS architecture.
+    """
+    def __init__(self, name: str, entity_id: str, priority: int = 10):
+        super().__init__(name, entity_id, priority)
         self.state = "idle" # idle, waiting, running
-        self.cycle_start_time = None
+        self.nominal_power_w = 2000.0
 
-class LoadScheduler:
-    """
-    Manages cyclic loads like washing machines and dishwashers.
-    Follows "Active Cycle" logic to avoid interrupting running appliances.
-    """
-    def __init__(self):
-        self.loads: List[CyclicLoad] = []
-
-    def add_load(self, entity_id: str, priority: int = 1):
-        self.loads.append(CyclicLoad(entity_id, priority))
-
-    def manage(self, sensors: Dict[str, Any], can_use_energy: bool) -> Dict[str, bool]:
+    def decide(self, sensors: Dict[str, Any], can_use_energy: bool, available_power_w: float) -> bool:
         """
-        Determines which loads to turn ON/OFF.
+        Logic for a cyclic machine.
         """
-        commands = {}
+        current_power = self.get_power_usage(sensors)
         grid_price = sensors.get("grid_price", 10.0)
+
+        # 1. Protection: If it's already drawing power, it MUST stay ON
+        if current_power > 10.0:
+            self.state = "running"
+            return True
+
+        # 2. If it was running but power dropped, stay ON for the pause
+        if self.state == "running" and current_power < 5.0:
+            # Note: In a production system, add a timeout here
+            return True
+
+        # 3. Decision for new cycle
+        if self.state == "waiting":
+            # Start if price is zero/negative OR we have solar excess
+            if grid_price <= 0 or can_use_energy:
+                # IMPORTANT: PowerGuardian will check if available_power_w is enough
+                return True
         
-        # Sort by priority
-        for load in sorted(self.loads, key=lambda x: x.priority):
-            current_power = sensors.get(f"{load.entity_id}_power", 0.0)
-            
-            # 1. Detect active cycle (self-healing/protection)
-            if current_power > 5.0: # Threshold for "Active"
-                load.state = "running"
-                commands[load.entity_id] = True
-                continue
+        return False
 
-            # 2. If it was running but power dropped, it's either finished or in a pause
-            if load.state == "running" and current_power < 2.0:
-                # We stay ON for a while to allow the machine to finish (e.g. heating pause)
-                # In a real system, we'd use a timer here.
-                commands[load.entity_id] = True
-                continue
+    def get_config_schema(self) -> Dict[str, Any]:
+        schema = super().get_config_schema()
+        schema.update({
+            "nominal_power_w": {"type": "number", "label": "Peak cycle power (W)"},
+            "state": {"type": "select", "label": "Mode", "options": ["idle", "waiting"]}
+        })
+        return schema
 
-            # 3. Decision for new cycle (waiting loads)
-            if load.state == "waiting":
-                if grid_price <= 0 or can_use_energy:
-                    logger.info(f"Starting cyclic load {load.entity_id} due to favorable conditions.")
-                    commands[load.entity_id] = True
-                    load.state = "running"
-                else:
-                    commands[load.entity_id] = False
-            else:
-                commands[load.entity_id] = False
-
-        return commands
