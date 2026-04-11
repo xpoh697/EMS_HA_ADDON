@@ -8,20 +8,19 @@ class HomeAssistantClient:
     """
     A unified client for interacting with Home Assistant REST API.
     Designed for reuse across multiple services.
+    Supports multi-strategy probing to find a working connection.
     """
     def __init__(self, base_url: str, token: str):
-        # Base URL should be like http://supervisor/core/api
-        self.base_url = base_url.rstrip("/")
+        self.primary_base_url = base_url.rstrip("/")
+        self.token = token
+        self.current_base_url = self.primary_base_url
         self.headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
-        # We do NOT pass base_url to AsyncClient to avoid magic joining issues
-        self.client = httpx.AsyncClient(
-            headers=self.headers,
-            timeout=15.0
-        )
+        self.client = httpx.AsyncClient(timeout=10.0)
         self.auth_failed = False
+        self.verified = False
         
         # Masked diagnostic log
         token_len = len(token)
@@ -32,7 +31,57 @@ class HomeAssistantClient:
         else:
             token_status = f"Detected (len: {token_len})"
             
-        logger.info(f"HomeAssistantClient initialized. Base URL: {self.base_url}, Token: {token_status}")
+        logger.info(f"HomeAssistantClient initialized. Base URL: {self.primary_base_url}, Token: {token_status}")
+
+    async def test_connection(self):
+        """
+        Probe multiple endpoints and header combinations to find a working strategy.
+        """
+        if self.token == "REPLACE_ME":
+            logger.warning("No token provided. Skipping connection test.")
+            return False
+
+        candidates = [
+            # 1. Standard Proxy + Bearer
+            {"url": f"{self.primary_base_url}/states", "headers": {"Authorization": f"Bearer {self.token}"}, "name": "Proxy + Bearer"},
+            # 2. Standard Proxy + X-Supervisor-Token
+            {"url": f"{self.primary_base_url}/states", "headers": {"X-Supervisor-Token": self.token}, "name": "Proxy + X-Supervisor-Token"},
+            # 3. Direct Core + Bearer
+            {"url": "http://homeassistant:8123/api/states", "headers": {"Authorization": f"Bearer {self.token}"}, "name": "Direct Core + Bearer"},
+            # 4. Direct Core IP + Bearer (standard Docker host)
+            {"url": "http://172.30.32.1:8123/api/states", "headers": {"Authorization": f"Bearer {self.token}"}, "name": "Direct IP + Bearer"},
+        ]
+
+        logger.info("--- HA Connection Probing Started ---")
+        best_strategy = None
+
+        for c in candidates:
+            try:
+                logger.info(f"Probing {c['name']} at {c['url']}...")
+                resp = await self.client.get(c["url"], headers=c["headers"])
+                logger.info(f"Result {c['name']}: HTTP {resp.status_code}")
+                
+                if resp.status_code == 200:
+                    logger.info(f"!!! SUCCESS: Found working strategy: {c['name']}")
+                    best_strategy = c
+                    break
+                elif resp.status_code == 401:
+                    logger.debug(f"Auth failed for {c['name']}")
+            except Exception as e:
+                logger.debug(f"Failed to reach {c['name']}: {e}")
+
+        if best_strategy:
+            # Commit to the working strategy
+            self.current_base_url = best_strategy["url"].replace("/states", "")
+            self.headers = {**best_strategy["headers"], "Content-Type": "application/json"}
+            self.verified = True
+            logger.info(f"Target URL committed: {self.current_base_url}")
+            return True
+        else:
+            logger.error("!!! ALL CONNECTION STRATEGIES FAILED !!!")
+            logger.error("Please create a 'Long-Lived Access Token' in HA (Profile -> Security).")
+            logger.error("Paste it into the addon options if possible, or wait for next fix.")
+            return False
 
     async def close(self):
         """Close the underlying HTTP client."""
@@ -43,9 +92,9 @@ class HomeAssistantClient:
         if self.auth_failed:
             return None
 
-        url = f"{self.base_url}/states/{entity_id}"
+        url = f"{self.current_base_url}/states/{entity_id}"
         try:
-            response = await self.client.get(url)
+            response = await self.client.get(url, headers=self.headers)
             if response.status_code == 401:
                 self._handle_auth_error()
                 return None
@@ -60,39 +109,34 @@ class HomeAssistantClient:
         if self.auth_failed:
             return []
 
-        url = f"{self.base_url}/states"
-        logger.info(f"Discovery: fetching all states from {url}")
+        url = f"{self.current_base_url}/states"
         try:
-            response = await self.client.get(url)
+            response = await self.client.get(url, headers=self.headers)
             if response.status_code == 401:
                 self._handle_auth_error()
                 return []
             response.raise_for_status()
             data = response.json()
-            logger.info(f"Discovery: found {len(data)} entities")
             return data
         except httpx.HTTPError as e:
             logger.error(f"Error fetching all states from {url}: {e}")
-            if hasattr(e, 'response') and e.response:
-                logger.error(f"Response body: {e.response.text}")
             return []
 
     def _handle_auth_error(self):
         """Handle 401 Unauthorized errors by logging and disabling further calls."""
         if not self.auth_failed:
             self.auth_failed = True
-            logger.error("!!! CRITICAL: 401 Unauthorized from Home Assistant. Ensure SUPERVISOR_TOKEN is valid.")
-            logger.error("URL hit: %s", self.base_url)
-            logger.error("Further HA API calls will be suspended.")
+            logger.error("!!! CRITICAL: 401 Unauthorized during operation at %s", self.current_base_url)
+            logger.error("Further HA API calls suspended.")
 
     async def call_service(self, domain: str, service: str, service_data: Dict[str, Any]) -> bool:
         """Call a Home Assistant service."""
         if self.auth_failed:
             return False
 
-        url = f"{self.base_url}/services/{domain}/{service}"
+        url = f"{self.current_base_url}/services/{domain}/{service}"
         try:
-            response = await self.client.post(url, json=service_data)
+            response = await self.client.post(url, headers=self.headers, json=service_data)
             if response.status_code == 401:
                 self._handle_auth_error()
                 return False

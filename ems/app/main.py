@@ -122,6 +122,9 @@ async def sensor_poller():
 import asyncio
 @app.on_event("startup")
 async def startup_event():
+    # Probe for working HA connection style
+    await ha_client.test_connection()
+    
     load_handlers()
     asyncio.create_task(sensor_poller())
 
