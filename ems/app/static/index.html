@@ -145,12 +145,12 @@
             
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <!-- Global Mapping -->
-                <div class="glass p-8 rounded-3xl">
+                <div class="glass px-4 py-6 md:p-8 rounded-3xl">
                     <h3 class="orbitron text-blue-400 mb-6 tracking-widest text-sm uppercase">{{ t('global_mapping') }}</h3>
                     <div class="space-y-6">
                         <div v-for="(label, key) in sensorLabels" :key="key">
                             <label class="block text-xs uppercase text-gray-500 mb-2 tracking-widest font-bold">{{ t(key) }}</label>
-                            <div class="flex gap-2 relative">
+                            <div class="grid grid-cols-[1fr_auto] gap-2 relative">
                                 <!-- Searchable Autocomplete -->
                                 <div class="flex-grow relative">
                                     <input 
@@ -159,7 +159,7 @@
                                         @focus="activeSearch = key"
                                         @blur="setTimeout(() => activeSearch = null, 200)"
                                         :placeholder="settings.global_sensors[key] || 'Type to search...'"
-                                        class="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition outline-none"
+                                        class="w-full bg-black/40 border border-white/20 rounded-xl p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition outline-none"
                                     >
                                     <div v-if="activeSearch === key" class="absolute z-[100] left-0 right-0 top-full mt-1 glass max-h-48 overflow-y-auto rounded-xl shadow-2xl border border-white/20 custom-scrollbar">
                                         <div 
@@ -180,7 +180,7 @@
                 </div>
 
                 <!-- Managed Loads -->
-                <div class="glass p-8 rounded-3xl">
+                <div class="glass px-4 py-6 md:p-8 rounded-3xl">
                     <div class="flex justify-between items-center mb-6">
                         <h3 class="orbitron text-blue-400 tracking-widest text-sm uppercase">{{ t('managed_loads') }}</h3>
                         <button @click="addLoad" class="text-xs bg-blue-500/20 text-blue-400 px-3 py-1 rounded-lg hover:bg-blue-500/30 transition">+ {{ t('add').toUpperCase() }}</button>
@@ -204,7 +204,7 @@
                                         @focus="activeSearch = 'load_'+index"
                                         @blur="setTimeout(() => activeSearch = null, 200)"
                                         :placeholder="load.entity_id || 'Type to search...'"
-                                        class="w-full bg-slate-900 border border-white/5 rounded-lg p-2 text-[10px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                                        class="w-full bg-black/40 border border-white/20 rounded-lg p-2 text-[10px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
                                     >
                                     <div v-if="activeSearch === 'load_'+index" class="absolute z-[100] left-0 right-0 top-full mt-1 glass max-h-40 overflow-y-auto rounded-lg shadow-2xl border border-white/20 custom-scrollbar">
                                         <div 
