@@ -71,6 +71,14 @@ current_sensors = {
     "survival_soc": 20, "price_tomorrow": 0
 }
 
+# Price arrays for the chart
+price_arrays = {
+    "buy_prices_today": [],
+    "sell_prices_today": [],
+    "buy_prices_tomorrow": [],
+    "sell_prices_tomorrow": []
+}
+
 def get_sensor_value(state_obj: dict, attr_name: str = None):
     """Extract value from state or attribute."""
     if not state_obj: return 0
@@ -80,6 +88,25 @@ def get_sensor_value(state_obj: dict, attr_name: str = None):
         return float(state_obj.get("state", 0))
     except (ValueError, TypeError):
         return 0
+
+def extract_price_array(raw):
+    """Extract hourly price array from various HA sensor attribute formats."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        result = []
+        for item in raw:
+            if isinstance(item, (int, float)):
+                result.append(float(item))
+            elif isinstance(item, dict):
+                # Format: {start, end, value} or {hour, price}
+                val = item.get("value") or item.get("price") or item.get("total") or 0
+                try:
+                    result.append(float(val))
+                except (ValueError, TypeError):
+                    result.append(0)
+        return result
+    return []
 
 async def sensor_poller():
     """Background task to fetch sensors from HA."""
@@ -107,11 +134,21 @@ async def sensor_poller():
                         attr_name = config.get(f"{cfg_key}_attr")
                         current_sensors[sensor_key] = get_sensor_value(state_obj, attr_name)
                         
-                        # Extra: If it's a price sensor, check for tomorrow
+                        # Extract price arrays from attributes
                         if "price" in cfg_key and state_obj:
-                            tomorrow = state_obj.get("attributes", {}).get("price_tomorrow")
-                            if tomorrow is not None:
-                                current_sensors["price_tomorrow"] = tomorrow
+                            attrs = state_obj.get("attributes", {})
+                            prefix = "buy" if cfg_key == "buy_price" else "sell"
+                            # Try common attribute names for hourly prices
+                            for attr_try in ["price_today", "today", "raw_today", "prices_today"]:
+                                today_raw = attrs.get(attr_try)
+                                if today_raw:
+                                    price_arrays[f"{prefix}_prices_today"] = extract_price_array(today_raw)
+                                    break
+                            for attr_try in ["price_tomorrow", "tomorrow", "raw_tomorrow", "prices_tomorrow"]:
+                                tomorrow_raw = attrs.get(attr_try)
+                                if tomorrow_raw:
+                                    price_arrays[f"{prefix}_prices_tomorrow"] = extract_price_array(tomorrow_raw)
+                                    break
 
             # 1. Update Survival SOC
             target_soc = occupancy.calculate_target_soc(current_sensors, 10.0) # Assume 10kWh if not set
@@ -181,6 +218,7 @@ async def get_dashboard():
     return {
         "sensors": current_sensors,
         "inverter_state": inverter.current_state.name,
+        "prices": price_arrays,
         "loads": [
             {
                 "name": h.name,

@@ -9,6 +9,7 @@
     <title>EMS Control Center</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -141,11 +142,37 @@
                     <p class="text-xs text-gray-500 mt-4">{{ t('survival') }}: {{ dashboard.sensors.survival_soc?.toFixed(1) || 20.0 }}%</p>
                 </div>
 
-                <!-- Price Card -->
+                <!-- Price Cards: Buy + Sell -->
                 <div class="glass p-8 rounded-3xl">
-                    <h3 class="text-gray-400 uppercase text-xs tracking-widest mb-4">{{ t('grid_price') }} ({{ t('buy') }})</h3>
-                    <div class="text-4xl font-bold orbitron text-yellow-400 mb-2">{{ dashboard.sensors.buy_price || 0.0 }}</div>
-                    <p class="text-xs text-info uppercase tracking-widest">CZK / kWh</p>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <div>
+                            <h3 class="text-gray-400 uppercase text-xs tracking-widest mb-3">{{ t('grid_price') }} ({{ t('buy') }})</h3>
+                            <div class="text-3xl font-bold orbitron text-yellow-400 mb-1">{{ formatPrice(dashboard.sensors.buy_price) }}</div>
+                            <p style="font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 2px;">CZK / kWh</p>
+                        </div>
+                        <div style="border-left: 1px solid rgba(255,255,255,0.1); padding-left: 16px;">
+                            <h3 class="text-gray-400 uppercase text-xs tracking-widest mb-3">{{ t('grid_price') }} ({{ t('sell') }})</h3>
+                            <div class="text-3xl font-bold orbitron text-green-400 mb-1">{{ formatPrice(dashboard.sensors.sell_price) }}</div>
+                            <p style="font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 2px;">CZK / kWh</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 24h Price Chart -->
+            <div class="glass p-6 md:p-8 rounded-3xl mb-8" style="margin-top: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <h3 class="orbitron text-sm tracking-widest" style="color: #94a3b8;">📊 {{ t('price_chart') }}</h3>
+                    <div style="display: flex; gap: 16px; font-size: 11px;">
+                        <span style="color: #fbbf24;">● {{ t('buy') }}</span>
+                        <span style="color: #4ade80;">● {{ t('sell') }}</span>
+                    </div>
+                </div>
+                <div style="position: relative; height: 200px; width: 100%;">
+                    <canvas id="priceChart"></canvas>
+                </div>
+                <div v-if="!hasPriceData" style="text-align: center; color: #475569; font-size: 12px; padding: 40px 0; font-style: italic;">
+                    {{ t('no_price_data') }}
                 </div>
             </div>
 
@@ -306,7 +333,7 @@
     </div>
 
     <script>
-        const { createApp, ref, onMounted, reactive } = Vue;
+        const { createApp, ref, onMounted, reactive, computed, watch, nextTick } = Vue;
 
         const translations = {
             RU: {
@@ -315,7 +342,8 @@
                 adaptive_loads: 'Умные Нагрузки', guardian: 'Power Guardian', sys_config: 'Системные Настройки',
                 global_mapping: 'Маппинг Глобальных Сенсоров', managed_loads: 'Управляемые Нагрузки', add: 'Добавить', save: 'СОХРАНИТЬ',
                 soc: 'Заряд Батареи (%)', solar: 'Генерация Солнца (Вт)', buy_price: 'Цена Покупки', sell_price: 'Цена Продажи',
-                house_power: 'Потребление Дома (Вт)', guardian_hint: 'Хранитель следит за лимитом мощности и отключает нагрузки по приоритету.'
+                house_power: 'Потребление Дома (Вт)', guardian_hint: 'Хранитель следит за лимитом мощности и отключает нагрузки по приоритету.',
+                price_chart: 'Цены за 24 часа', no_price_data: 'Нет данных о ценах. Привяжите сенсоры цен в настройках.'
             },
             EN: {
                 config: 'CONFIG', online: 'SYSTEM ONLINE', inv_mode: 'Inverter Mode', priority: 'Priority',
@@ -323,7 +351,8 @@
                 adaptive_loads: 'Adaptive Loads', guardian: 'Power Guardian', sys_config: 'System Configuration',
                 global_mapping: 'Global Sensors Mapping', managed_loads: 'Managed Loads', add: 'Add', save: 'SAVE CONFIGURATION',
                 soc: 'Battery State of Charge (%)', solar: 'Solar Power Production (W)', buy_price: 'Buy Price', sell_price: 'Sell Price',
-                house_power: 'Whole-house Power Usage (W)', guardian_hint: 'Guardian monitors real-time house power and enforces priorities.'
+                house_power: 'Whole-house Power Usage (W)', guardian_hint: 'Guardian monitors real-time house power and enforces priorities.',
+                price_chart: '24h Price Chart', no_price_data: 'No price data. Assign price sensors in settings.'
             },
             PL: {
                 config: 'KONFIG', online: 'SYSTEM ONLINE', inv_mode: 'Tryb Inwertera', priority: 'Priorytet',
@@ -331,7 +360,8 @@
                 adaptive_loads: 'Inteligentne Obciążenia', guardian: 'Strażnik Mocy', sys_config: 'Konfiguracja Systemu',
                 global_mapping: 'Mapowanie Czujników Globalnych', managed_loads: 'Zarządzane Obciążenia', add: 'Dodaj', save: 'ZAPISZ KONFIGURACJĘ',
                 soc: 'Poziom Naładowania Baterii (%)', solar: 'Produkcja Słońca (W)', buy_price: 'Cena Zakupu', sell_price: 'Cena Sprzedaży',
-                house_power: 'Zużycie Energii w Domu (W)', guardian_hint: 'Strażnik monitoruje moc domu w czasie rzeczywistym i egzekwuje priorytety.'
+                house_power: 'Zużycie Energii w Domu (W)', guardian_hint: 'Strażnik monitoruje moc domu w czasie rzeczywistym i egzekwuje priorytety.',
+                price_chart: 'Ceny 24h', no_price_data: 'Brak danych cenowych. Przypisz czujniki cen w ustawieniach.'
             }
         };
 
@@ -339,7 +369,7 @@
             setup() {
                 const view = ref('dashboard');
                 const lang = ref('RU');
-                const dashboard = ref({ sensors: {}, loads: [] });
+                const dashboard = ref({ sensors: {}, loads: [], prices: {} });
                 const entities = ref([]);
                 const settings = ref({
                     global_sensors: { soc: '', solar: '', buy_price: '', sell_price: '', house_power: '' },
@@ -381,7 +411,13 @@
                 const fetchData = async () => {
                     try {
                         const res = await fetch('api/dashboard');
-                        dashboard.value = await res.json();
+                        const data = await res.json();
+                        dashboard.value = data;
+                        // Update chart if we have price data
+                        if (data.prices && view.value === 'dashboard') {
+                            await nextTick();
+                            renderPriceChart(data.prices);
+                        }
                     } catch (e) {
                         console.error("Dashboard poll failed");
                     }
@@ -436,6 +472,99 @@
                     searchQueries['load_' + idx] = '';
                 };
 
+                const formatPrice = (val) => {
+                    const num = parseFloat(val) || 0;
+                    return num.toFixed(4);
+                };
+
+                const hasPriceData = computed(() => {
+                    const p = dashboard.value.prices || {};
+                    return (p.buy_prices_today && p.buy_prices_today.length > 0) ||
+                           (p.sell_prices_today && p.sell_prices_today.length > 0);
+                });
+
+                let priceChartInstance = null;
+                const renderPriceChart = (prices) => {
+                    const canvas = document.getElementById('priceChart');
+                    if (!canvas || typeof Chart === 'undefined') return;
+                    
+                    const buyToday = prices.buy_prices_today || [];
+                    const sellToday = prices.sell_prices_today || [];
+                    if (buyToday.length === 0 && sellToday.length === 0) return;
+                    
+                    const maxLen = Math.max(buyToday.length, sellToday.length, 24);
+                    const labels = Array.from({length: maxLen}, (_, i) => `${String(i).padStart(2, '0')}:00`);
+                    const now = new Date().getHours();
+                    
+                    if (priceChartInstance) {
+                        priceChartInstance.data.labels = labels;
+                        priceChartInstance.data.datasets[0].data = buyToday;
+                        priceChartInstance.data.datasets[1].data = sellToday;
+                        priceChartInstance.update('none');
+                        return;
+                    }
+
+                    priceChartInstance = new Chart(canvas, {
+                        type: 'line',
+                        data: {
+                            labels,
+                            datasets: [
+                                {
+                                    label: 'Buy',
+                                    data: buyToday,
+                                    borderColor: '#fbbf24',
+                                    backgroundColor: 'rgba(251, 191, 36, 0.1)',
+                                    fill: true,
+                                    tension: 0.3,
+                                    pointRadius: (ctx) => ctx.dataIndex === now ? 6 : 2,
+                                    pointBackgroundColor: (ctx) => ctx.dataIndex === now ? '#fbbf24' : 'rgba(251,191,36,0.5)',
+                                    borderWidth: 2
+                                },
+                                {
+                                    label: 'Sell',
+                                    data: sellToday,
+                                    borderColor: '#4ade80',
+                                    backgroundColor: 'rgba(74, 222, 128, 0.05)',
+                                    fill: true,
+                                    tension: 0.3,
+                                    pointRadius: (ctx) => ctx.dataIndex === now ? 6 : 2,
+                                    pointBackgroundColor: (ctx) => ctx.dataIndex === now ? '#4ade80' : 'rgba(74,222,128,0.5)',
+                                    borderWidth: 2
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: { intersect: false, mode: 'index' },
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    backgroundColor: '#1e293b',
+                                    borderColor: 'rgba(255,255,255,0.1)',
+                                    borderWidth: 1,
+                                    titleColor: '#94a3b8',
+                                    bodyColor: '#e2e8f0',
+                                    padding: 12,
+                                    callbacks: {
+                                        label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(4)} CZK`
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: { 
+                                    ticks: { color: '#475569', font: { size: 10 }, maxTicksLimit: 12 },
+                                    grid: { color: 'rgba(255,255,255,0.03)' }
+                                },
+                                y: { 
+                                    ticks: { color: '#475569', font: { size: 10 }, callback: (v) => v.toFixed(2) },
+                                    grid: { color: 'rgba(255,255,255,0.05)' }
+                                }
+                            }
+                        }
+                    });
+                };
+
                 onMounted(() => {
                     fetchData();
                     fetchSettings();
@@ -445,7 +574,7 @@
 
                 return { 
                     view, dashboard, settings, entities, sensorLabels, 
-                    saveSettings, addLoad, lang, t,
+                    saveSettings, addLoad, lang, t, formatPrice, hasPriceData,
                     searchQueries, activeSearch, filteredEntities, selectEntity
                 };
             }
