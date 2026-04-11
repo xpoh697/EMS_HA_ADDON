@@ -33,6 +33,56 @@
         .status-glow {
             box-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
         }
+        /* Settings inputs - clearly visible as editable fields */
+        .sensor-input {
+            background: #1e293b !important;
+            border: 2px solid rgba(100, 116, 139, 0.5) !important;
+            border-radius: 12px;
+            padding: 12px 16px;
+            font-size: 14px;
+            color: #e2e8f0;
+            width: 100%;
+            min-height: 44px;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            caret-color: #38bdf8;
+            box-sizing: border-box;
+        }
+        .sensor-input::placeholder {
+            color: #64748b;
+            font-style: italic;
+        }
+        .sensor-input:focus {
+            border-color: #38bdf8 !important;
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+        }
+        .settings-card {
+            overflow: visible !important;
+        }
+        .autocomplete-dropdown {
+            position: absolute;
+            z-index: 9999;
+            left: 0;
+            right: 0;
+            top: 100%;
+            margin-top: 4px;
+            background: #1e293b;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+        }
+        .autocomplete-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            transition: background 0.15s;
+        }
+        .autocomplete-item:last-child { border-bottom: none; }
+        .autocomplete-item:hover {
+            background: rgba(56, 189, 248, 0.15);
+        }
     </style>
 </head>
 <body class="p-4 md:p-8">
@@ -136,7 +186,9 @@
                     </div>
                 </div>
             </section>
-        </d        <!-- Settings View -->
+        </div>
+
+        <!-- Settings View -->
         <div v-if="view === 'settings'" class="animate-fade-in pb-20">
             <h2 class="text-3xl font-bold orbitron mb-8 flex items-center gap-4">
                 <button @click="view = 'dashboard'" class="text-gray-500 hover:text-white transition">←</button>
@@ -145,42 +197,41 @@
             
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <!-- Global Mapping -->
-                <div class="glass px-4 py-6 md:p-8 rounded-3xl">
+                <div class="glass px-4 py-6 md:p-8 rounded-3xl settings-card">
                     <h3 class="orbitron text-blue-400 mb-6 tracking-widest text-sm uppercase">{{ t('global_mapping') }}</h3>
-                    <div class="space-y-6">
-                        <div v-for="(label, key) in sensorLabels" :key="key">
-                            <label class="block text-xs uppercase text-gray-500 mb-2 tracking-widest font-bold">{{ t(key) }}</label>
-                            <div class="grid grid-cols-[1fr_auto] gap-2 relative">
-                                <!-- Searchable Autocomplete -->
-                                <div class="flex-grow relative">
+                    <div class="space-y-5">
+                        <div v-for="(label, key) in sensorLabels" :key="key" style="position: relative;">
+                            <label class="block text-xs uppercase text-gray-400 mb-2 tracking-widest font-bold">{{ t(key) }}</label>
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 8px;" :style="['buy_price', 'sell_price'].includes(key) ? 'grid-template-columns: 1fr 90px;' : ''">
+                                <div style="position: relative; min-width: 0;">
                                     <input 
                                         type="text" 
                                         v-model="searchQueries[key]"
                                         @focus="activeSearch = key"
                                         @blur="setTimeout(() => activeSearch = null, 200)"
-                                        :placeholder="settings.global_sensors[key] || 'Type to search...'"
-                                        class="w-full bg-black/40 border border-white/20 rounded-xl p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition outline-none"
+                                        :placeholder="settings.global_sensors[key] || '🔍 Type to search entity...'"
+                                        class="sensor-input"
                                     >
-                                    <div v-if="activeSearch === key" class="absolute z-[100] left-0 right-0 top-full mt-1 glass max-h-48 overflow-y-auto rounded-xl shadow-2xl border border-white/20 custom-scrollbar">
+                                    <div v-if="activeSearch === key" class="autocomplete-dropdown">
                                         <div 
                                             v-for="ent in filteredEntities(searchQueries[key])" 
                                             :key="ent.id"
                                             @click="selectEntity(key, ent)"
-                                            class="p-3 text-xs hover:bg-blue-500/30 cursor-pointer border-b border-white/5 last:border-0 transition"
+                                            class="autocomplete-item"
                                         >
-                                            <div class="font-bold text-gray-100">{{ ent.name }}</div>
-                                            <div class="text-[10px] text-blue-400">{{ ent.id }}</div>
+                                            <div style="font-weight: 600; color: #e2e8f0; font-size: 13px;">{{ ent.name }}</div>
+                                            <div style="font-size: 10px; color: #38bdf8; margin-top: 2px;">{{ ent.id }}</div>
                                         </div>
                                     </div>
                                 </div>
-                                <input v-if="['buy_price', 'sell_price'].includes(key)" v-model="settings.global_sensors[key + '_attr']" placeholder="Attr" class="w-24 bg-slate-900 border border-white/10 rounded-xl p-3 text-[10px] outline-none">
+                                <input v-if="['buy_price', 'sell_price'].includes(key)" v-model="settings.global_sensors[key + '_attr']" placeholder="Attribute" class="sensor-input" style="font-size: 11px;">
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Managed Loads -->
-                <div class="glass px-4 py-6 md:p-8 rounded-3xl">
+                <div class="glass px-4 py-6 md:p-8 rounded-3xl settings-card">
                     <div class="flex justify-between items-center mb-6">
                         <h3 class="orbitron text-blue-400 tracking-widest text-sm uppercase">{{ t('managed_loads') }}</h3>
                         <button @click="addLoad" class="text-xs bg-blue-500/20 text-blue-400 px-3 py-1 rounded-lg hover:bg-blue-500/30 transition">+ {{ t('add').toUpperCase() }}</button>
@@ -189,38 +240,39 @@
                     <div class="space-y-4">
                         <div v-for="(load, index) in settings.loads" :key="index" class="p-4 bg-white/5 rounded-2xl border border-white/5 group">
                             <div class="flex justify-between gap-4 mb-4">
-                                <input v-model="load.name" placeholder="Load Name" class="bg-transparent border-b border-white/10 text-sm focus:border-blue-500 outline-none w-1/2">
-                                <select v-model="load.type" class="bg-transparent border-b border-white/10 text-xs text-blue-400 outline-none">
+                                <input v-model="load.name" placeholder="Load Name" class="sensor-input" style="font-size: 14px;">
+                                <select v-model="load.type" class="sensor-input" style="font-size: 12px; width: auto; min-width: 120px; color: #38bdf8;">
                                     <option value="boiler">Boiler</option>
                                     <option value="cyclic">Cyclic Machine</option>
                                 </select>
-                                <button @click="settings.loads.splice(index, 1)" class="opacity-0 group-hover:opacity-100 text-red-500 transition">✕</button>
+                                <button @click="settings.loads.splice(index, 1)" class="text-red-500 hover:text-red-400 transition" style="flex-shrink: 0;">✕</button>
                             </div>
-                            <div class="grid grid-cols-1 gap-2 relative">
-                                <div class="relative w-full">
+                            <div style="position: relative;">
+                                <div style="position: relative; min-width: 0;">
                                     <input 
                                         type="text" 
                                         v-model="searchQueries['load_'+index]"
                                         @focus="activeSearch = 'load_'+index"
                                         @blur="setTimeout(() => activeSearch = null, 200)"
-                                        :placeholder="load.entity_id || 'Type to search...'"
-                                        class="w-full bg-black/40 border border-white/20 rounded-lg p-2 text-[10px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                                        :placeholder="load.entity_id || '🔍 Type to search entity...'"
+                                        class="sensor-input"
+                                        style="font-size: 12px;"
                                     >
-                                    <div v-if="activeSearch === 'load_'+index" class="absolute z-[100] left-0 right-0 top-full mt-1 glass max-h-40 overflow-y-auto rounded-lg shadow-2xl border border-white/20 custom-scrollbar">
+                                    <div v-if="activeSearch === 'load_'+index" class="autocomplete-dropdown">
                                         <div 
                                             v-for="ent in filteredEntities(searchQueries['load_'+index])" 
                                             :key="ent.id"
                                             @click="selectEntity('load_'+index, ent)"
-                                            class="p-2 text-[10px] hover:bg-blue-500/30 cursor-pointer border-b border-white/5 last:border-0"
+                                            class="autocomplete-item"
                                         >
-                                            <div class="font-bold text-gray-200">{{ ent.name }}</div>
-                                            <div class="text-[8px] text-blue-400">{{ ent.id }}</div>
+                                            <div style="font-weight: 600; color: #e2e8f0; font-size: 12px;">{{ ent.name }}</div>
+                                            <div style="font-size: 9px; color: #38bdf8; margin-top: 2px;">{{ ent.id }}</div>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="flex items-center gap-2 mt-2">
-                                    <span class="text-[8px] orbitron text-gray-500">PRIORITY</span>
-                                    <input v-model.number="load.priority" type="number" class="w-16 bg-slate-900 border border-white/5 rounded-lg p-1 text-[10px] outline-none">
+                                <div class="flex items-center gap-2 mt-3">
+                                    <span style="font-size: 10px; color: #64748b;" class="orbitron">PRIORITY</span>
+                                    <input v-model.number="load.priority" type="number" class="sensor-input" style="width: 70px; font-size: 12px; min-height: 36px; padding: 6px 10px;">
                                 </div>
                             </div>
                         </div>
