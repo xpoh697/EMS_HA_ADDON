@@ -38,6 +38,14 @@ if os.path.exists("/data/options.json"):
     except Exception as e:
         logger.warning(f"Could not read options.json: {e}")
 
+# Try to load token from DB if not found yet or to keep it persistent
+db = SessionLocal()
+token_setting = db.query(SystemSetting).filter(SystemSetting.key == "ha_token").first()
+if token_setting and token_setting.value:
+    ha_token = token_setting.value
+    logger.info("Using HA_TOKEN from database.")
+db.close()
+
 ha_client = HomeAssistantClient(base_url="http://supervisor/core/api", token=ha_token)
 
 # Dynamic Handlers
@@ -65,10 +73,18 @@ def load_handlers():
     handlers = new_handlers
     logger.info(f"Loaded {len(handlers)} handlers from database.")
 
+@app.on_event("startup")
+async def update_ha_config():
+    """Fetch system config from HA like currency."""
+    config = await ha_client.get_config()
+    if config:
+        current_sensors["currency"] = config.get("currency", "EUR")
+        logger.info(f"HA Currency: {current_sensors['currency']}")
+
 # State
 current_sensors = {
     "battery_soc": 0, "solar_power": 0, "buy_price": 0, "sell_price": 0, "house_power": 0,
-    "survival_soc": 20, "price_tomorrow": 0
+    "survival_soc": 20, "price_tomorrow": 0, "currency": "EUR"
 }
 
 # Price arrays for the chart
@@ -115,6 +131,10 @@ async def sensor_poller():
             db = SessionLocal()
             setting = db.query(SystemSetting).filter(SystemSetting.key == "global_sensors").first()
             db.close()
+
+            # Ensure we have currency if it's missing (e.g. failed at startup)
+            if not current_sensors.get("currency") or current_sensors["currency"] == "EUR":
+                await update_ha_config()
             
             if setting:
                 config = setting.value
@@ -174,6 +194,7 @@ import asyncio
 async def startup_event():
     # Probe for working HA connection style
     await ha_client.test_connection()
+    await update_ha_config()
     
     load_handlers()
     asyncio.create_task(sensor_poller())
@@ -212,6 +233,45 @@ async def save_settings(data: dict):
     # Refresh handlers in memory
     load_handlers()
     return {"status": "ok"}
+
+@app.get("/api/settings/export")
+async def export_settings():
+    db = SessionLocal()
+    settings = db.query(SystemSetting).all()
+    # Mask ha_token for security? No, the user wants to export it for import/backup.
+    # Note: we provide it as is.
+    res = {s.key: s.value for s in settings}
+    db.close()
+    return res
+
+@app.post("/api/settings/import")
+async def import_settings(data: dict):
+    db = SessionLocal()
+    try:
+        # Clear existing or just update
+        for key, value in data.items():
+            setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+            if not setting:
+                setting = SystemSetting(key=key, value=value)
+                db.add(setting)
+            else:
+                setting.value = value
+        db.commit()
+        
+        # If ha_token was imported, update the client
+        if "ha_token" in data:
+            ha_client.token = data["ha_token"]
+            ha_client.headers["Authorization"] = f"Bearer {data['ha_token']}"
+            await ha_client.test_connection()
+            await update_ha_config()
+            
+        load_handlers()
+        return {"status": "ok"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 @app.get("/api/dashboard")
 async def get_dashboard():

@@ -146,6 +146,22 @@ class HomeAssistantClient:
             logger.error(f"Error calling service {domain}.{service}: {e}")
             return False
 
+    async def get_config(self) -> Optional[Dict[str, Any]]:
+        """Fetch Home Assistant configuration."""
+        if self.auth_failed:
+            return None
+        url = f"{self.current_base_url}/config"
+        try:
+            response = await self.client.get(url, headers=self.headers)
+            if response.status_code == 401:
+                self._handle_auth_error()
+                return None
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPError as e:
+            logger.error(f"Error fetching HA config: {e}")
+            return None
+
     async def turn_on(self, entity_id: str) -> bool:
         domain = entity_id.split(".")[0]
         return await self.call_service(domain, "turn_on", {"entity_id": entity_id})

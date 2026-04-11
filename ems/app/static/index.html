@@ -148,12 +148,12 @@
                         <div>
                             <h3 class="text-gray-400 uppercase text-xs tracking-widest mb-3">{{ t('grid_price') }} ({{ t('buy') }})</h3>
                             <div class="text-3xl font-bold orbitron text-yellow-400 mb-1">{{ formatPrice(dashboard.sensors.buy_price) }}</div>
-                            <p style="font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 2px;">CZK / kWh</p>
+                            <p style="font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 2px;">{{ dashboard.sensors.currency || 'EUR' }} / kWh</p>
                         </div>
                         <div style="border-left: 1px solid rgba(255,255,255,0.1); padding-left: 16px;">
                             <h3 class="text-gray-400 uppercase text-xs tracking-widest mb-3">{{ t('grid_price') }} ({{ t('sell') }})</h3>
                             <div class="text-3xl font-bold orbitron text-green-400 mb-1">{{ formatPrice(dashboard.sensors.sell_price) }}</div>
-                            <p style="font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 2px;">CZK / kWh</p>
+                            <p style="font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 2px;">{{ dashboard.sensors.currency || 'EUR' }} / kWh</p>
                         </div>
                     </div>
                 </div>
@@ -223,13 +223,26 @@
             <h2 class="text-3xl font-bold orbitron mb-8 flex items-center gap-4">
                 <button @click="view = 'dashboard'" class="text-gray-500 hover:text-white transition">←</button>
                 {{ t('sys_config') }}
-                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.1.4</span>
+                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.0</span>
             </h2>
             
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <!-- Global Mapping -->
                 <div style="background: rgba(255,255,255,0.05); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; padding: 24px; overflow: visible;">
                     <h3 class="orbitron text-blue-400 mb-6 tracking-widest text-sm uppercase">{{ t('global_mapping') }}</h3>
+                    
+                    <!-- HA Token Field -->
+                    <div style="margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <label style="display: block; font-size: 11px; text-transform: uppercase; color: #fbbf24; margin-bottom: 8px; letter-spacing: 2px; font-weight: 700;">Home Assistant Token</label>
+                        <input 
+                            type="password" 
+                            v-model="settings.ha_token"
+                            placeholder="Optional: Long-Lived Access Token"
+                            style="display: block; width: 100%; box-sizing: border-box; background: #1e293b; border: 2px solid #334155; border-radius: 10px; padding: 10px 14px; font-size: 13px; color: #94a3b8; outline: none; min-height: 42px;"
+                        >
+                        <p style="font-size: 10px; color: #475569; margin-top: 6px;">{{ t('token_hint') }}</p>
+                    </div>
+
                     <div style="display: flex; flex-direction: column; gap: 20px;">
                         <div v-for="(label, key) in sensorLabels" :key="key" style="position: relative;">
                             <label style="display: block; font-size: 11px; text-transform: uppercase; color: #94a3b8; margin-bottom: 8px; letter-spacing: 2px; font-weight: 700;">{{ t(key) }}</label>
@@ -323,7 +336,16 @@
                 </div>
             </div>
 
-            <div class="mt-8 flex justify-end">
+            <div class="mt-8 flex justify-between items-center gap-4">
+                <div class="flex gap-4">
+                    <button @click="exportSettings" class="px-6 py-3 rounded-xl border border-white/10 hover:bg-white/5 text-gray-400 text-xs orbitron transition">
+                        📥 {{ t('export') }}
+                    </button>
+                    <button @click="$refs.fileInput.click()" class="px-6 py-3 rounded-xl border border-white/10 hover:bg-white/5 text-gray-400 text-xs orbitron transition">
+                        📤 {{ t('import') }}
+                    </button>
+                    <input type="file" ref="fileInput" @change="importSettings" style="display: none" accept=".json">
+                </div>
                 <button @click="saveSettings" class="bg-blue-600 hover:bg-blue-500 text-white orbitron px-12 py-4 rounded-2xl shadow-lg shadow-blue-500/20 active:scale-95 transition">
                     {{ t('save') }}
                 </button>
@@ -343,7 +365,8 @@
                 global_mapping: 'Маппинг Глобальных Сенсоров', managed_loads: 'Управляемые Нагрузки', add: 'Добавить', save: 'СОХРАНИТЬ',
                 soc: 'Заряд Батареи (%)', solar: 'Генерация Солнца (Вт)', buy_price: 'Цена Покупки', sell_price: 'Цена Продажи',
                 house_power: 'Потребление Дома (Вт)', guardian_hint: 'Хранитель следит за лимитом мощности и отключает нагрузки по приоритету.',
-                price_chart: 'Цены за 24 часа', no_price_data: 'Нет данных о ценах. Привяжите сенсоры цен в настройках.'
+                price_chart: 'Цены за 24 часа', no_price_data: 'Нет данных о ценах. Привяжите сенсоры цен в настройках.',
+                export: 'ЭКСПОРТ', import: 'ИМПОРТ', token_hint: 'Используйте, если автоматическая авторизация через Supervisor не работает.'
             },
             EN: {
                 config: 'CONFIG', online: 'SYSTEM ONLINE', inv_mode: 'Inverter Mode', priority: 'Priority',
@@ -352,7 +375,8 @@
                 global_mapping: 'Global Sensors Mapping', managed_loads: 'Managed Loads', add: 'Add', save: 'SAVE CONFIGURATION',
                 soc: 'Battery State of Charge (%)', solar: 'Solar Power Production (W)', buy_price: 'Buy Price', sell_price: 'Sell Price',
                 house_power: 'Whole-house Power Usage (W)', guardian_hint: 'Guardian monitors real-time house power and enforces priorities.',
-                price_chart: '24h Price Chart', no_price_data: 'No price data. Assign price sensors in settings.'
+                price_chart: '24h Price Chart', no_price_data: 'No price data. Assign price sensors in settings.',
+                export: 'EXPORT', import: 'IMPORT', token_hint: 'Use this only if Supervisor auto-auth fails.'
             },
             PL: {
                 config: 'KONFIG', online: 'SYSTEM ONLINE', inv_mode: 'Tryb Inwertera', priority: 'Priorytet',
@@ -464,6 +488,42 @@
                     });
                     alert("Settings saved successfully!");
                     view.value = 'dashboard';
+                };
+
+                const exportSettings = async () => {
+                    const res = await fetch('api/settings/export');
+                    const data = await res.json();
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `ems_settings_backup_${new Date().toISOString().slice(0,10)}.json`;
+                    a.click();
+                };
+
+                const importSettings = async (event) => {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        try {
+                            const data = JSON.parse(e.target.result);
+                            const res = await fetch('api/settings/import', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(data)
+                            });
+                            if (res.ok) {
+                                alert("Settings imported successfully!");
+                                window.location.reload();
+                            } else {
+                                alert("Import failed. Check file format.");
+                            }
+                        } catch (err) {
+                            alert("Invalid JSON file.");
+                        }
+                    };
+                    reader.readAsText(file);
                 };
 
                 const addLoad = () => {
