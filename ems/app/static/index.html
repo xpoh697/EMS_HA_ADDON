@@ -158,17 +158,17 @@
                                         v-model="searchQueries[key]"
                                         @focus="activeSearch = key"
                                         @blur="setTimeout(() => activeSearch = null, 200)"
-                                        :placeholder="settings.global_sensors[key] || 'Select Entity...'"
-                                        class="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-sm focus:border-blue-500 transition outline-none"
+                                        :placeholder="settings.global_sensors[key] || 'Type to search...'"
+                                        class="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition outline-none"
                                     >
-                                    <div v-if="activeSearch === key" class="absolute z-50 w-full mt-2 glass max-h-60 overflow-y-auto rounded-xl shadow-2xl border border-white/10 custom-scrollbar">
+                                    <div v-if="activeSearch === key" class="absolute z-[100] left-0 right-0 top-full mt-1 glass max-h-48 overflow-y-auto rounded-xl shadow-2xl border border-white/20 custom-scrollbar">
                                         <div 
                                             v-for="ent in filteredEntities(searchQueries[key])" 
                                             :key="ent.id"
                                             @click="selectEntity(key, ent)"
-                                            class="p-3 text-xs hover:bg-blue-500/20 cursor-pointer border-b border-white/5 last:border-0 transition"
+                                            class="p-3 text-xs hover:bg-blue-500/30 cursor-pointer border-b border-white/5 last:border-0 transition"
                                         >
-                                            <div class="font-bold text-gray-200">{{ ent.name }}</div>
+                                            <div class="font-bold text-gray-100">{{ ent.name }}</div>
                                             <div class="text-[10px] text-blue-400">{{ ent.id }}</div>
                                         </div>
                                     </div>
@@ -197,22 +197,25 @@
                                 <button @click="settings.loads.splice(index, 1)" class="opacity-0 group-hover:opacity-100 text-red-500 transition">✕</button>
                             </div>
                             <div class="grid grid-cols-1 gap-2 relative">
-                                <input 
-                                    type="text" 
-                                    v-model="searchQueries['load_'+index]"
-                                    @focus="activeSearch = 'load_'+index"
-                                    @blur="setTimeout(() => activeSearch = null, 200)"
-                                    :placeholder="load.entity_id || 'Select Entity...'"
-                                    class="w-full bg-slate-900 border border-white/5 rounded-lg p-2 text-[10px] outline-none"
-                                >
-                                <div v-if="activeSearch === 'load_'+index" class="absolute z-50 w-full mt-10 glass max-h-40 overflow-y-auto rounded-lg shadow-2xl border border-white/10 custom-scrollbar">
-                                    <div 
-                                        v-for="ent in filteredEntities(searchQueries['load_'+index])" 
-                                        :key="ent.id"
-                                        @click="load.entity_id = ent.id; searchQueries['load_'+index] = ent.name"
-                                        class="p-2 text-[10px] hover:bg-blue-500/20 cursor-pointer border-b border-white/5 last:border-0"
+                                <div class="relative w-full">
+                                    <input 
+                                        type="text" 
+                                        v-model="searchQueries['load_'+index]"
+                                        @focus="activeSearch = 'load_'+index"
+                                        @blur="setTimeout(() => activeSearch = null, 200)"
+                                        :placeholder="load.entity_id || 'Type to search...'"
+                                        class="w-full bg-slate-900 border border-white/5 rounded-lg p-2 text-[10px] focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
                                     >
-                                        {{ ent.name }} ({{ ent.id }})
+                                    <div v-if="activeSearch === 'load_'+index" class="absolute z-[100] left-0 right-0 top-full mt-1 glass max-h-40 overflow-y-auto rounded-lg shadow-2xl border border-white/20 custom-scrollbar">
+                                        <div 
+                                            v-for="ent in filteredEntities(searchQueries['load_'+index])" 
+                                            :key="ent.id"
+                                            @click="selectEntity('load_'+index, ent)"
+                                            class="p-2 text-[10px] hover:bg-blue-500/30 cursor-pointer border-b border-white/5 last:border-0"
+                                        >
+                                            <div class="font-bold text-gray-200">{{ ent.name }}</div>
+                                            <div class="text-[8px] text-blue-400">{{ ent.id }}</div>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-2 mt-2">
@@ -275,7 +278,9 @@
                     loads: []
                 });
 
-                const searchQueries = reactive({});
+                const searchQueries = reactive({
+                    soc: '', solar: '', buy_price: '', sell_price: '', house_power: ''
+                });
                 const activeSearch = ref(null);
 
                 const sensorLabels = {
@@ -288,11 +293,19 @@
                     const q = (query || '').toLowerCase();
                     return entities.value.filter(e => 
                         e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q)
-                    ).slice(0, 50); // limit for performance
+                    ).slice(0, 30); // limited for stability
                 };
 
                 const selectEntity = (key, ent) => {
-                    settings.value.global_sensors[key] = ent.id;
+                    // Update settings
+                    if (key.startsWith('load_')) {
+                        const idx = parseInt(key.split('_')[1]);
+                        settings.value.loads[idx].entity_id = ent.id;
+                    } else {
+                        settings.value.global_sensors[key] = ent.id;
+                    }
+                    
+                    // Update query display
                     searchQueries[key] = ent.name;
                     activeSearch.value = null;
                 };
@@ -313,19 +326,23 @@
                     if (data.loads) settings.value.loads = data.loads;
                     if (data.lang) lang.value = data.lang;
 
-                    // Init search queries names
+                    // Init search queries names after settings load
                     initSearchQueries();
                 };
 
                 const initSearchQueries = () => {
+                  // Global sensors
                   Object.keys(settings.value.global_sensors).forEach(k => {
                     const id = settings.value.global_sensors[k];
                     const ent = entities.value.find(e => e.id === id);
                     if (ent) searchQueries[k] = ent.name;
                   });
+                  // Loads
                   settings.value.loads.forEach((l, i) => {
+                    const id = 'load_' + i;
+                    if (!searchQueries[id]) searchQueries[id] = '';
                     const ent = entities.value.find(e => e.id === l.entity_id);
-                    if (ent) searchQueries['load_'+i] = ent.name;
+                    if (ent) searchQueries[id] = ent.name;
                   });
                 };
 
@@ -346,7 +363,9 @@
                 };
 
                 const addLoad = () => {
+                    const idx = settings.value.loads.length;
                     settings.value.loads.push({ name: 'New Load', type: 'cyclic', entity_id: '', priority: 20 });
+                    searchQueries['load_' + idx] = '';
                 };
 
                 onMounted(() => {
