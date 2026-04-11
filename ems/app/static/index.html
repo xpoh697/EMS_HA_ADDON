@@ -223,7 +223,7 @@
             <h2 class="text-3xl font-bold orbitron mb-8 flex items-center gap-4">
                 <button @click="view = 'dashboard'" class="text-gray-500 hover:text-white transition">←</button>
                 {{ t('sys_config') }}
-                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.2</span>
+                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.3</span>
             </h2>
             
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -557,11 +557,17 @@
                     const now = new Date().getHours();
                     
                     if (priceChartInstance) {
-                        priceChartInstance.data.labels = labels;
-                        priceChartInstance.data.datasets[0].data = buyToday;
-                        priceChartInstance.data.datasets[1].data = sellToday;
-                        priceChartInstance.update('none');
-                        return;
+                        // If canvas element changed (due to v-if), destroy and recreate
+                        if (priceChartInstance.canvas !== canvas) {
+                            priceChartInstance.destroy();
+                            priceChartInstance = null;
+                        } else {
+                            priceChartInstance.data.labels = labels;
+                            priceChartInstance.data.datasets[0].data = buyToday;
+                            priceChartInstance.data.datasets[1].data = sellToday;
+                            priceChartInstance.update('none');
+                            return;
+                        }
                     }
 
                     priceChartInstance = new Chart(canvas, {
@@ -624,6 +630,15 @@
                         }
                     });
                 };
+
+                watch(view, async (newView) => {
+                    if (newView === 'dashboard') {
+                        await nextTick();
+                        if (dashboard.value.prices) {
+                            renderPriceChart(dashboard.value.prices);
+                        }
+                    }
+                });
 
                 onMounted(() => {
                     fetchData();
