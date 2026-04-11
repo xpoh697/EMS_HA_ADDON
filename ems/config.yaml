@@ -5,7 +5,7 @@ slug: "ems"
 url: "https://github.com/xpoh697/EMS_HA_ADDON"
 maintainer: "Expert EMS Team"
 hassio_api: true
-hassio_role: manager
+hassio_role: admin
 init: false
 
 arch:
