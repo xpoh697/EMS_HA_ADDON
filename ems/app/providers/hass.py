@@ -10,26 +10,27 @@ class HomeAssistantClient:
     Designed for reuse across multiple services.
     """
     def __init__(self, base_url: str, token: str):
-        # Ensure base_url ends with /api for consistency if it's the supervisor proxy
+        # Base URL should be like http://supervisor/core/api
         self.base_url = base_url.rstrip("/")
         self.headers = {
             "Authorization": f"Bearer {token}",
-            "X-Supervisor-Token": token,  # Redundant header for some proxy versions
             "Content-Type": "application/json",
         }
+        # We do NOT pass base_url to AsyncClient to avoid magic joining issues
         self.client = httpx.AsyncClient(
-            base_url=self.base_url,
             headers=self.headers,
             timeout=15.0
         )
         self.auth_failed = False
         
-        # Diagnostic log (no sensitive data)
+        # Masked diagnostic log
         token_len = len(token)
-        token_status = "REPLACE_ME" if token == "REPLACE_ME" else f"Detected (len: {token_len})"
-        
-        if token != "REPLACE_ME" and token_len < 20:
-            logger.warning(f"!!! WARNING: Token length is very short ({token_len}). This might not be a valid JWT.")
+        if token == "REPLACE_ME":
+            token_status = "REPLACE_ME"
+        elif token_len > 8:
+            token_status = f"{token[:4]}...{token[-4:]} (len: {token_len})"
+        else:
+            token_status = f"Detected (len: {token_len})"
             
         logger.info(f"HomeAssistantClient initialized. Base URL: {self.base_url}, Token: {token_status}")
 
@@ -42,7 +43,7 @@ class HomeAssistantClient:
         if self.auth_failed:
             return None
 
-        url = f"/states/{entity_id}"
+        url = f"{self.base_url}/states/{entity_id}"
         try:
             response = await self.client.get(url)
             if response.status_code == 401:
@@ -59,8 +60,8 @@ class HomeAssistantClient:
         if self.auth_failed:
             return []
 
-        url = "/states"
-        logger.info(f"Discovery: fetching all states from {self.base_url}{url}")
+        url = f"{self.base_url}/states"
+        logger.info(f"Discovery: fetching all states from {url}")
         try:
             response = await self.client.get(url)
             if response.status_code == 401:
@@ -80,16 +81,16 @@ class HomeAssistantClient:
         """Handle 401 Unauthorized errors by logging and disabling further calls."""
         if not self.auth_failed:
             self.auth_failed = True
-            logger.error("!!! CRITICAL: 401 Unauthorized from Home Assistant. URL: %s", self.base_url)
-            logger.error("Please check your SUPERVISOR_TOKEN permissions (Role should be Admin).")
-            logger.error("Further HA API calls will be suspended to avoid log flooding.")
+            logger.error("!!! CRITICAL: 401 Unauthorized from Home Assistant. Ensure SUPERVISOR_TOKEN is valid.")
+            logger.error("URL hit: %s", self.base_url)
+            logger.error("Further HA API calls will be suspended.")
 
     async def call_service(self, domain: str, service: str, service_data: Dict[str, Any]) -> bool:
         """Call a Home Assistant service."""
         if self.auth_failed:
             return False
 
-        url = f"/services/{domain}/{service}"
+        url = f"{self.base_url}/services/{domain}/{service}"
         try:
             response = await self.client.post(url, json=service_data)
             if response.status_code == 401:
