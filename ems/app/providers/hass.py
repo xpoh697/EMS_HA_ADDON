@@ -15,54 +15,83 @@ class HomeAssistantClient:
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
+        self.client = httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=self.headers,
+            timeout=15.0
+        )
+        self.auth_failed = False
+        
+        # Diagnostic log
+        token_status = "REPLACE_ME" if token == "REPLACE_ME" else f"Detected (len: {len(token)})"
+        logger.info(f"HomeAssistantClient initialized. Base URL: {self.base_url}, Token: {token_status}")
 
+    async def close(self):
+        """Close the underlying HTTP client."""
+        await self.client.aclose()
 
     async def get_state(self, entity_id: str) -> Optional[Dict[str, Any]]:
         """Fetch the current state of a Home Assistant entity."""
-        url = f"{self.base_url}/api/states/{entity_id}"
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(url, headers=self.headers)
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPError as e:
-                logger.error(f"Error fetching state for {entity_id}: {e}")
+        if self.auth_failed:
+            return None
+
+        url = f"/api/states/{entity_id}"
+        try:
+            response = await self.client.get(url)
+            if response.status_code == 401:
+                self._handle_auth_error()
                 return None
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPError as e:
+            logger.error(f"Error fetching state for {entity_id}: {e}")
+            return None
 
     async def get_all_states(self) -> List[Dict[str, Any]]:
         """Fetch all entity states for discovery."""
-        url = f"{self.base_url}/api/states"
-        print(f"DEBUG: Calling HA API (discovery): {url}")
-        logger.info(f"Discovery: fetching all states from {url}")
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(url, headers=self.headers, timeout=10.0)
-                print(f"DEBUG: HA Response Status: {response.status_code}")
-                logger.info(f"Discovery: received response {response.status_code}")
-                response.raise_for_status()
-                data = response.json()
-                print(f"DEBUG: Found {len(data)} entities")
-                logger.info(f"Discovery: found {len(data)} entities")
-                return data
-            except httpx.HTTPError as e:
-                print(f"DEBUG: HA ERROR: {e}")
-                logger.error(f"Error fetching all states from {url}: {e}")
-                if hasattr(e, 'response') and e.response:
-                    logger.error(f"Response body: {e.response.text}")
-                return []
+        if self.auth_failed:
+            return []
 
+        url = "/api/states"
+        logger.info(f"Discovery: fetching all states from {self.base_url}{url}")
+        try:
+            response = await self.client.get(url)
+            if response.status_code == 401:
+                self._handle_auth_error()
+                return []
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"Discovery: found {len(data)} entities")
+            return data
+        except httpx.HTTPError as e:
+            logger.error(f"Error fetching all states from {url}: {e}")
+            if hasattr(e, 'response') and e.response:
+                logger.error(f"Response body: {e.response.text}")
+            return []
+
+    def _handle_auth_error(self):
+        """Handle 401 Unauthorized errors by logging and disabling further calls."""
+        if not self.auth_failed:
+            self.auth_failed = True
+            logger.error("!!! CRITICAL: 401 Unauthorized from Home Assistant. Please check your SUPERVISOR_TOKEN or HA_TOKEN configuration.")
+            logger.error("Further HA API calls will be suspended to avoid log flooding.")
 
     async def call_service(self, domain: str, service: str, service_data: Dict[str, Any]) -> bool:
         """Call a Home Assistant service."""
-        url = f"{self.base_url}/api/services/{domain}/{service}"
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(url, headers=self.headers, json=service_data)
-                response.raise_for_status()
-                return True
-            except httpx.HTTPError as e:
-                logger.error(f"Error calling service {domain}.{service}: {e}")
+        if self.auth_failed:
+            return False
+
+        url = f"/api/services/{domain}/{service}"
+        try:
+            response = await self.client.post(url, json=service_data)
+            if response.status_code == 401:
+                self._handle_auth_error()
                 return False
+            response.raise_for_status()
+            return True
+        except httpx.HTTPError as e:
+            logger.error(f"Error calling service {domain}.{service}: {e}")
+            return False
 
     async def turn_on(self, entity_id: str) -> bool:
         domain = entity_id.split(".")[0]

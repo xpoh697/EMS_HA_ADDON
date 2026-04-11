@@ -23,11 +23,8 @@ inverter = InverterController(dry_run=True)
 occupancy = OccupancyEngine()
 guardian = PowerGuardian(max_grid_power_w=11000.0)
 
-# HA Client using Supervisor Token
-ha_token = os.environ.get("SUPERVISOR_TOKEN", "REPLACE_ME")
-print(f"DEBUG: SUPERVISOR_TOKEN found: {ha_token != 'REPLACE_ME'}")
-if ha_token != 'REPLACE_ME':
-    print(f"DEBUG: Token starts with: {ha_token[:10]}...")
+# HA Client using Supervisor Token or fallback
+ha_token = os.environ.get("SUPERVISOR_TOKEN") or os.environ.get("HA_TOKEN", "REPLACE_ME")
 ha_client = HomeAssistantClient(base_url="http://supervisor/core", token=ha_token)
 
 # Dynamic Handlers
@@ -127,6 +124,10 @@ import asyncio
 async def startup_event():
     load_handlers()
     asyncio.create_task(sensor_poller())
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await ha_client.close()
 
 @app.get("/api/ha/entities")
 async def get_ha_entities():
