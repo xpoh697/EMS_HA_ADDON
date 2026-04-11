@@ -25,6 +25,19 @@ guardian = PowerGuardian(max_grid_power_w=11000.0)
 
 # HA Client using Supervisor Token or fallback
 ha_token = os.environ.get("SUPERVISOR_TOKEN") or os.environ.get("HA_TOKEN", "REPLACE_ME")
+
+# Read options for manual token fallback
+if os.path.exists("/data/options.json"):
+    try:
+        with open("/data/options.json", "r") as f:
+            opts = json.load(f)
+            manual_token = opts.get("ha_token")
+            if manual_token and len(manual_token) > 20:
+                ha_token = manual_token
+                logger.info("Using manual HA_TOKEN from configuration options.")
+    except Exception as e:
+        logger.warning(f"Could not read options.json: {e}")
+
 ha_client = HomeAssistantClient(base_url="http://supervisor/core/api", token=ha_token)
 
 # Dynamic Handlers

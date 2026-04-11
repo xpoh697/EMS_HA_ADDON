@@ -1,6 +1,6 @@
 name: "Energy Management System (EMS)"
 description: "Smart energy management for homes with Solar, Battery and Dynamic Tariffs."
-version: "1.0.6"
+version: "1.0.7"
 slug: "ems"
 url: "https://github.com/xpoh697/EMS_HA_ADDON"
 maintainer: "Expert EMS Team"
@@ -24,9 +24,11 @@ options:
   log_level: "info"
   dry_run: true
   history_days: 7
+  ha_token: ""
 schema:
   log_level: "list(trace|debug|info|warning|error|fatal)"
   dry_run: "bool"
   history_days: "int(1,60)"
+  ha_token: "string?"
 ports:
   8000/tcp: 8000
