@@ -136,11 +136,8 @@
                     </div>
                 </div>
             </section>
-        </div>
-
-
-        <!-- Settings View -->
-        <div v-if="view === 'settings'" class="animate-fade-in">
+        </d        <!-- Settings View -->
+        <div v-if="view === 'settings'" class="animate-fade-in pb-20">
             <h2 class="text-3xl font-bold orbitron mb-8 flex items-center gap-4">
                 <button @click="view = 'dashboard'" class="text-gray-500 hover:text-white transition">←</button>
                 {{ t('sys_config') }}
@@ -153,12 +150,30 @@
                     <div class="space-y-6">
                         <div v-for="(label, key) in sensorLabels" :key="key">
                             <label class="block text-xs uppercase text-gray-500 mb-2 tracking-widest font-bold">{{ t(key) }}</label>
-                            <div class="flex gap-2">
-                                <select v-model="settings.global_sensors[key]" class="flex-grow bg-slate-900 border border-white/10 rounded-xl p-3 text-sm focus:border-blue-500 transition outline-none">
-                                    <option value="">Not Assigned</option>
-                                    <option v-for="ent in entities" :key="ent.id" :value="ent.id">{{ ent.name }} ({{ ent.id }})</option>
-                                </select>
-                                <input v-if="['buy_price', 'sell_price'].includes(key)" v-model="settings.global_sensors[key + '_attr']" placeholder="Attr (e.g. price_today)" class="w-32 bg-slate-900 border border-white/10 rounded-xl p-3 text-[10px] outline-none">
+                            <div class="flex gap-2 relative">
+                                <!-- Searchable Autocomplete -->
+                                <div class="flex-grow relative">
+                                    <input 
+                                        type="text" 
+                                        v-model="searchQueries[key]"
+                                        @focus="activeSearch = key"
+                                        @blur="setTimeout(() => activeSearch = null, 200)"
+                                        :placeholder="settings.global_sensors[key] || 'Select Entity...'"
+                                        class="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-sm focus:border-blue-500 transition outline-none"
+                                    >
+                                    <div v-if="activeSearch === key" class="absolute z-50 w-full mt-2 glass max-h-60 overflow-y-auto rounded-xl shadow-2xl border border-white/10 custom-scrollbar">
+                                        <div 
+                                            v-for="ent in filteredEntities(searchQueries[key])" 
+                                            :key="ent.id"
+                                            @click="selectEntity(key, ent)"
+                                            class="p-3 text-xs hover:bg-blue-500/20 cursor-pointer border-b border-white/5 last:border-0 transition"
+                                        >
+                                            <div class="font-bold text-gray-200">{{ ent.name }}</div>
+                                            <div class="text-[10px] text-blue-400">{{ ent.id }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <input v-if="['buy_price', 'sell_price'].includes(key)" v-model="settings.global_sensors[key + '_attr']" placeholder="Attr" class="w-24 bg-slate-900 border border-white/10 rounded-xl p-3 text-[10px] outline-none">
                             </div>
                         </div>
                     </div>
@@ -181,11 +196,29 @@
                                 </select>
                                 <button @click="settings.loads.splice(index, 1)" class="opacity-0 group-hover:opacity-100 text-red-500 transition">✕</button>
                             </div>
-                            <div class="grid grid-cols-2 gap-4">
-                                <select v-model="load.entity_id" class="w-full bg-slate-900 border border-white/5 rounded-lg p-2 text-[10px] outline-none">
-                                    <option v-for="ent in entities" :key="ent.id" :value="ent.id">{{ ent.name }}</option>
-                                </select>
-                                <input v-model.number="load.priority" type="number" placeholder="Priority" class="bg-slate-900 border border-white/5 rounded-lg p-2 text-[10px] outline-none">
+                            <div class="grid grid-cols-1 gap-2 relative">
+                                <input 
+                                    type="text" 
+                                    v-model="searchQueries['load_'+index]"
+                                    @focus="activeSearch = 'load_'+index"
+                                    @blur="setTimeout(() => activeSearch = null, 200)"
+                                    :placeholder="load.entity_id || 'Select Entity...'"
+                                    class="w-full bg-slate-900 border border-white/5 rounded-lg p-2 text-[10px] outline-none"
+                                >
+                                <div v-if="activeSearch === 'load_'+index" class="absolute z-50 w-full mt-10 glass max-h-40 overflow-y-auto rounded-lg shadow-2xl border border-white/10 custom-scrollbar">
+                                    <div 
+                                        v-for="ent in filteredEntities(searchQueries['load_'+index])" 
+                                        :key="ent.id"
+                                        @click="load.entity_id = ent.id; searchQueries['load_'+index] = ent.name"
+                                        class="p-2 text-[10px] hover:bg-blue-500/20 cursor-pointer border-b border-white/5 last:border-0"
+                                    >
+                                        {{ ent.name }} ({{ ent.id }})
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2 mt-2">
+                                    <span class="text-[8px] orbitron text-gray-500">PRIORITY</span>
+                                    <input v-model.number="load.priority" type="number" class="w-16 bg-slate-900 border border-white/5 rounded-lg p-1 text-[10px] outline-none">
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -202,13 +235,13 @@
     </div>
 
     <script>
-        const { createApp, ref, onMounted } = Vue;
+        const { createApp, ref, onMounted, reactive } = Vue;
 
         const translations = {
             RU: {
                 config: 'Конфиг', online: 'СИСТЕМА ОНЛАЙН', inv_mode: 'Режим Инвертора', priority: 'Приоритет',
                 storage: 'Резерв Батареи', survival: 'Аварийный SOC', grid_price: 'Цена Сети', buy: 'Покупка', sell: 'Продажа',
-                adaptive_loads: 'Умные Нагрузки', guardian: 'Strażnik Mocy', sys_config: 'Системные Настройки',
+                adaptive_loads: 'Умные Нагрузки', guardian: 'Power Guardian', sys_config: 'Системные Настройки',
                 global_mapping: 'Маппинг Глобальных Сенсоров', managed_loads: 'Управляемые Нагрузки', add: 'Добавить', save: 'СОХРАНИТЬ',
                 soc: 'Заряд Батареи (%)', solar: 'Генерация Солнца (Вт)', buy_price: 'Цена Покупки', sell_price: 'Цена Продажи',
                 house_power: 'Потребление Дома (Вт)', guardian_hint: 'Хранитель следит за лимитом мощности и отключает нагрузки по приоритету.'
@@ -242,11 +275,27 @@
                     loads: []
                 });
 
+                const searchQueries = reactive({});
+                const activeSearch = ref(null);
+
                 const sensorLabels = {
                     soc: 'soc', solar: 'solar', buy_price: 'buy_price', sell_price: 'sell_price', house_power: 'house_power'
                 };
 
                 const t = (key) => translations[lang.value][key] || key;
+
+                const filteredEntities = (query) => {
+                    const q = (query || '').toLowerCase();
+                    return entities.value.filter(e => 
+                        e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q)
+                    ).slice(0, 50); // limit for performance
+                };
+
+                const selectEntity = (key, ent) => {
+                    settings.value.global_sensors[key] = ent.id;
+                    searchQueries[key] = ent.name;
+                    activeSearch.value = null;
+                };
 
                 const fetchData = async () => {
                     try {
@@ -263,12 +312,27 @@
                     if (data.global_sensors) settings.value.global_sensors = data.global_sensors;
                     if (data.loads) settings.value.loads = data.loads;
                     if (data.lang) lang.value = data.lang;
+
+                    // Init search queries names
+                    initSearchQueries();
+                };
+
+                const initSearchQueries = () => {
+                  Object.keys(settings.value.global_sensors).forEach(k => {
+                    const id = settings.value.global_sensors[k];
+                    const ent = entities.value.find(e => e.id === id);
+                    if (ent) searchQueries[k] = ent.name;
+                  });
+                  settings.value.loads.forEach((l, i) => {
+                    const ent = entities.value.find(e => e.id === l.entity_id);
+                    if (ent) searchQueries['load_'+i] = ent.name;
+                  });
                 };
 
                 const fetchEntities = async () => {
-                    console.log("DEBUG: Fetching entities via api/ha/entities");
                     const res = await fetch('api/ha/entities');
                     entities.value = await res.json();
+                    initSearchQueries();
                 };
 
                 const saveSettings = async () => {
@@ -292,7 +356,11 @@
                     setInterval(fetchData, 5000);
                 });
 
-                return { view, dashboard, settings, entities, sensorLabels, saveSettings, addLoad, lang, t };
+                return { 
+                    view, dashboard, settings, entities, sensorLabels, 
+                    saveSettings, addLoad, lang, t,
+                    searchQueries, activeSearch, filteredEntities, selectEntity
+                };
             }
         }).mount('#app');
     </script>
