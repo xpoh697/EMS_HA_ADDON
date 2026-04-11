@@ -25,7 +25,7 @@ guardian = PowerGuardian(max_grid_power_w=11000.0)
 
 # HA Client using Supervisor Token or fallback
 ha_token = os.environ.get("SUPERVISOR_TOKEN") or os.environ.get("HA_TOKEN", "REPLACE_ME")
-ha_client = HomeAssistantClient(base_url="http://supervisor/core", token=ha_token)
+ha_client = HomeAssistantClient(base_url="http://supervisor/core/api", token=ha_token)
 
 # Dynamic Handlers
 handlers = []
