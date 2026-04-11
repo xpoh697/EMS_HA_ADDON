@@ -14,7 +14,8 @@ RUN apk add --no-cache \
 COPY requirements.txt /
 RUN pip3 install --no-cache-dir --break-system-packages -r /requirements.txt
 
-# Copy root filesystem
+# Copy root filesystem — CACHEBUST forces re-copy on every rebuild
+ARG CACHEBUST=1
 COPY . /app
 WORKDIR /app
 

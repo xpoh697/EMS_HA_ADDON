@@ -193,13 +193,19 @@ async def get_dashboard():
     }
 
 
-# UI Mounting
-if os.path.exists("app/static"):
-    app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
-
+# Anti-cache middleware — must be before static mount
 @app.middleware("http")
-async def add_ingress_path(request: Request, call_next):
+async def add_headers(request: Request, call_next):
     root_path = request.headers.get("X-Ingress-Path", "")
     if root_path:
         request.scope["root_path"] = root_path
-    return await call_next(request)
+    response = await call_next(request)
+    # Prevent browser/Ingress from caching HTML and API responses
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+# UI Mounting
+if os.path.exists("app/static"):
+    app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
