@@ -73,9 +73,11 @@ def load_handlers():
     handlers = new_handlers
     logger.info(f"Loaded {len(handlers)} handlers from database.")
 
-@app.on_event("startup")
 async def update_ha_config():
     """Fetch system config from HA like currency."""
+    if ha_client.auth_failed:
+        logger.warning("Skipping HA config fetch: Auth failed.")
+        return
     config = await ha_client.get_config()
     if config:
         current_sensors["currency"] = config.get("currency", "EUR")

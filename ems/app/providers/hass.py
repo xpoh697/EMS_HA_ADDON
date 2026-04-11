@@ -75,6 +75,7 @@ class HomeAssistantClient:
             self.current_base_url = best_strategy["url"].replace("/states", "")
             self.headers = {**best_strategy["headers"], "Content-Type": "application/json"}
             self.verified = True
+            self.auth_failed = False # Reset auth failure if we found a working one
             logger.info(f"Target URL committed: {self.current_base_url}")
             return True
         else:
