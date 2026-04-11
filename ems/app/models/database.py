@@ -36,7 +36,9 @@ class SystemSetting(Base):
 
 
 # Database setup
-engine = create_engine("sqlite:///ems_data.db", connect_args={"check_same_thread": False})
+import os
+db_path = "/data/ems_data.db" if os.path.exists("/data") else "ems_data.db"
+engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
