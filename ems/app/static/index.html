@@ -159,6 +159,25 @@
                 </div>
             </div>
 
+            <!-- Solar & Forecasts -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8" style="margin-top: 24px;">
+                <div class="glass p-6 rounded-3xl relative overflow-hidden">
+                    <div class="absolute -right-5 -top-5 w-20 h-20 bg-yellow-500/5 rounded-full blur-2xl"></div>
+                    <h3 class="text-gray-400 uppercase text-[10px] tracking-widest mb-3">{{ t('solar') }}</h3>
+                    <div class="text-2xl font-bold orbitron text-yellow-400 mb-1">{{ dashboard.sensors.solar_power || 0 }} <span style="font-size: 12px; color: #64748b;">W</span></div>
+                </div>
+                <div class="glass p-6 rounded-3xl relative overflow-hidden">
+                    <div class="absolute -right-5 -top-5 w-20 h-20 bg-blue-500/5 rounded-full blur-2xl"></div>
+                    <h3 class="text-gray-400 uppercase text-[10px] tracking-widest mb-3">{{ t('solar_forecast_today') }}</h3>
+                    <div class="text-2xl font-bold orbitron text-blue-400 mb-1">{{ dashboard.sensors.solar_forecast_today || 0 }} <span style="font-size: 12px; color: #64748b;">kWh</span></div>
+                </div>
+                <div class="glass p-6 rounded-3xl relative overflow-hidden">
+                    <div class="absolute -right-5 -top-5 w-20 h-20 bg-indigo-500/5 rounded-full blur-2xl"></div>
+                    <h3 class="text-gray-400 uppercase text-[10px] tracking-widest mb-3">{{ t('solar_forecast_tomorrow') }}</h3>
+                    <div class="text-2xl font-bold orbitron text-indigo-400 mb-1">{{ dashboard.sensors.solar_forecast_tomorrow || 0 }} <span style="font-size: 12px; color: #64748b;">kWh</span></div>
+                </div>
+            </div>
+
             <!-- 24h Price Chart -->
             <div class="glass p-6 md:p-8 rounded-3xl mb-8" style="margin-top: 24px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
@@ -297,10 +316,6 @@
                             <input type="number" step="0.001" v-model.number="settings.strategy_limits.stop_sale_min_price" style="width:100%; background:#1e293b; border:1px solid #334155; border-radius:8px; padding:8px; color:white;">
                         </div>
                         <div>
-                            <label style="display: block; font-size: 10px; text-transform: uppercase; color: #94a3b8; margin-bottom: 6px;">{{ t('pv_min') }}</label>
-                            <input type="number" step="0.001" v-model.number="settings.strategy_limits.sale_pv_min_price" style="width:100%; background:#1e293b; border:1px solid #334155; border-radius:8px; padding:8px; color:white;">
-                        </div>
-                        <div>
                             <label style="display: block; font-size: 10px; text-transform: uppercase; color: #94a3b8; margin-bottom: 6px;">{{ t('no_bat_min') }}</label>
                             <input type="number" step="0.001" v-model.number="settings.strategy_limits.sale_pv_no_bat_min_price" style="width:100%; background:#1e293b; border:1px solid #334155; border-radius:8px; padding:8px; color:white;">
                         </div>
@@ -412,7 +427,7 @@
                 export: 'ЭКСПОРТ', import: 'ИМПОРТ', token_hint: 'Используйте, если автоматическая авторизация через Supervisor не работает.',
                 strategy_limits: 'Лимиты Стратегии',
                 buy_max: 'Макс. цена покупки', stop_min: 'Мин. цена для Stop Sale',
-                pv_min: 'Мин. цена для Sale PV', no_bat_min: 'Sale PV No Bat: Мин. цена',
+                no_bat_min: 'Sale PV No Bat: Мин. цена',
                 no_bat_hour: 'No Bat: До часа (0-23)', bat_min_p: 'Sale PV Bat: Мин. цена',
                 bat_min_s: 'Sale PV Bat: Мин. SOC (%)',
                 bat_emergency: 'Мин. уровень батареи (Emergency)'
@@ -431,7 +446,7 @@
                 export: 'EXPORT', import: 'IMPORT', token_hint: 'Use this only if Supervisor auto-auth fails.',
                 strategy_limits: 'Strategy Limits',
                 buy_max: 'Max Buy Price', stop_min: 'Min Stop Sale Price',
-                pv_min: 'Min Sale PV Price', no_bat_min: 'No Bat: Min Price',
+                no_bat_min: 'No Bat: Min Price',
                 no_bat_hour: 'No Bat: Max Hour (0-23)', bat_min_p: 'PV Bat: Min Price',
                 bat_min_s: 'PV Bat: Min SOC (%)',
                 bat_emergency: 'Emergency SOC Floor (%)'
@@ -449,7 +464,7 @@
                 price_chart: 'Ceny 24h', no_price_data: 'Brak danych cenowych. Przypisz czujniki cen w ustawieniach.',
                 strategy_limits: 'Limity Strategii',
                 buy_max: 'Maks. cena kupna', stop_min: 'Min. cena Stop Sale',
-                pv_min: 'Min. cena Sale PV', no_bat_min: 'No Bat: Min. cena',
+                no_bat_min: 'No Bat: Min. cena',
                 no_bat_hour: 'No Bat: Godz. (0-23)', bat_min_p: 'PV Bat: Min. cena',
                 bat_min_s: 'PV Bat: Min. SOC (%)',
                 bat_emergency: 'Minimalny SOC (Awaryjny)'
@@ -470,7 +485,6 @@
                     strategy_limits: {
                         buy_max_price: 0.05,
                         stop_sale_min_price: 0.001,
-                        sale_pv_min_price: 0.01,
                         sale_pv_no_bat_min_price: 0.1,
                         sale_pv_no_bat_max_hour: 10,
                         sale_pv_bat_min_price: 0.5,

@@ -76,9 +76,8 @@ class InverterController:
         return s.get("waiting_for_price_dip", False)
 
     def _is_standard_sale(self, s):
-        # Default sale only if price > min threshold
-        min_price = s.get("sale_pv_min_price", 0.0)
-        return s.get("sell_price", 0) >= min_price
+        # Default fallback sale mode
+        return True
 
     def _is_high_price_no_charge(self, s):
         # Sale PV but don't charge battery from it if price is good and current_hour < max_hour
