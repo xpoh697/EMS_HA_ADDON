@@ -89,7 +89,7 @@ current_sensors = {
     "battery_soc": 0, "solar_power": 0, "buy_price": 0, "sell_price": 0, "house_power": 0,
     "survival_soc": 20, "price_tomorrow": 0, "currency": "EUR", "current_hour": 0,
     "solar_forecast_today": 0, "solar_forecast_tomorrow": 0,
-    "solar_energy_total": 0, "solar_energy_today": 0
+    "solar_energy_total": 0, "solar_energy_today": 0, "house_energy_today": 0
 }
 
 # Solar tracking state
@@ -327,7 +327,8 @@ async def sensor_poller():
                     "solar_forecast_today": "solar_forecast_today",
                     "solar_forecast_tomorrow": "solar_forecast_tomorrow",
                     "solar_energy": "solar_energy_total",
-                    "solar_energy_today": "solar_energy_today"
+                    "solar_energy_today": "solar_energy_today",
+                    "house_energy_today": "house_energy_today"
                 }
                 
                 for cfg_key, sensor_key in mapping.items():

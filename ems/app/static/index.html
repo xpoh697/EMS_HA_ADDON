@@ -159,8 +159,16 @@
                 </div>
             </div>
 
-            <!-- Solar & Forecasts -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8" style="margin-top: 24px;">
+            <!-- Solar, House & Forecasts -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8" style="margin-top: 24px;">
+                <!-- House Usage card -->
+                <div class="glass p-6 rounded-3xl relative overflow-hidden">
+                    <div class="absolute -right-5 -top-5 w-20 h-20 bg-indigo-500/10 rounded-full blur-2xl"></div>
+                    <h3 class="text-gray-400 uppercase text-[10px] tracking-widest mb-3">{{ t('house_power') }}</h3>
+                    <div class="text-2xl font-bold orbitron text-indigo-300 mb-1">{{ dashboard.sensors.house_power || 0 }} <span style="font-size: 12px; color: #64748b;">W</span></div>
+                    <div class="text-[10px] text-gray-500 orbitron border-t border-white/5 pt-2 mt-2">{{ t('today') }}: {{ dashboard.sensors.house_energy_today || 0 }} <span class="text-[8px]">kWh</span></div>
+                </div>
+                <!-- Existing Solar cards -->
                 <div class="glass p-6 rounded-3xl relative overflow-hidden">
                     <div class="absolute -right-5 -top-5 w-20 h-20 bg-yellow-500/5 rounded-full blur-2xl"></div>
                     <h3 class="text-gray-400 uppercase text-[10px] tracking-widest mb-3">{{ t('solar') }}</h3>
@@ -173,9 +181,9 @@
                     <div class="text-2xl font-bold orbitron text-blue-400 mb-1">{{ dashboard.sensors.solar_forecast_today || 0 }} <span style="font-size: 12px; color: #64748b;">kWh</span></div>
                 </div>
                 <div class="glass p-6 rounded-3xl relative overflow-hidden cursor-pointer hover:bg-white/10 transition" @click="openSolarModal">
-                    <div class="absolute -right-5 -top-5 w-20 h-20 bg-indigo-500/5 rounded-full blur-2xl"></div>
+                    <div class="absolute -right-5 -top-5 w-20 h-20 bg-blue-400/5 rounded-full blur-2xl"></div>
                     <h3 class="text-gray-400 uppercase text-[10px] tracking-widest mb-3">{{ t('solar_forecast_tomorrow') }}</h3>
-                    <div class="text-2xl font-bold orbitron text-indigo-400 mb-1">{{ dashboard.sensors.solar_forecast_tomorrow || 0 }} <span style="font-size: 12px; color: #64748b;">kWh</span></div>
+                    <div class="text-2xl font-bold orbitron text-blue-300 mb-1">{{ dashboard.sensors.solar_forecast_tomorrow || 0 }} <span style="font-size: 12px; color: #64748b;">kWh</span></div>
                 </div>
             </div>
 
@@ -274,7 +282,7 @@
             <h2 class="text-3xl font-bold orbitron mb-8 flex items-center gap-4">
                 <button @click="view = 'dashboard'" class="text-gray-500 hover:text-white transition">←</button>
                 {{ t('sys_config') }}
-                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.21</span>
+                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.22</span>
             </h2>
             
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -469,7 +477,8 @@
                 solar_modal_title: 'Почасовой Анализ Солнца',
                 actual: 'Факт (Архив)',
                 forecast_raw: 'Прогноз (Solcast)',
-                forecast_corr: 'Прогноз (С учетом тени)'
+                forecast_corr: 'Прогноз (С учетом тени)',
+                house_energy_today: 'Потребление дома сегодня (kWh)'
             },
             EN: {
                 config: 'CONFIG', online: 'SYSTEM ONLINE', inv_mode: 'Inverter Mode', priority: 'Priority',
@@ -495,7 +504,8 @@
                 solar_modal_title: 'Hourly Solar Analysis',
                 actual: 'Actual (Historical)',
                 forecast_raw: 'Forecast (Raw)',
-                forecast_corr: 'Forecast (Corrected)'
+                forecast_corr: 'Forecast (Corrected)',
+                house_energy_today: 'House Energy Today (kWh)'
             },
             PL: {
                 config: 'KONFIG', online: 'SYSTEM ONLINE', inv_mode: 'Tryb Inwertera', priority: 'Priorytet',
@@ -520,7 +530,8 @@
                 solar_modal_title: 'Godzinowa Analiza Słońca',
                 actual: 'Faktyczne (Historia)',
                 forecast_raw: 'Prognoza (Solcast)',
-                forecast_corr: 'Prognoza (Skorygowana)'
+                forecast_corr: 'Prognoza (Skorygowana)',
+                house_energy_today: 'Zużycie domu dzisiaj (kWh)'
             }
         };
 
@@ -534,7 +545,7 @@
                     global_sensors: { 
                         soc: '', solar: '', buy_price: '', sell_price: '', house_power: '',
                         solar_forecast_today: '', solar_forecast_tomorrow: '', solar_energy: '',
-                        solar_energy_today: ''
+                        solar_energy_today: '', house_energy_today: ''
                     },
                     strategy_limits: {
                         buy_max_price: 0.05,
@@ -550,7 +561,8 @@
 
                 const searchQueries = reactive({
                     soc: '', solar: '', buy_price: '', sell_price: '', house_power: '',
-                    solar_forecast_today: '', solar_forecast_tomorrow: '', solar_energy_today: ''
+                    solar_forecast_today: '', solar_forecast_tomorrow: '', solar_energy_today: '',
+                    house_energy_today: ''
                 });
                 const activeSearch = ref(null);
                 const solarModal = reactive({ show: false, chart: null, loading: false, error: null });
@@ -558,7 +570,8 @@
                 const sensorLabels = {
                     soc: 'soc', solar: 'solar', buy_price: 'buy_price', sell_price: 'sell_price', house_power: 'house_power',
                     solar_forecast_today: 'solar_forecast_today', solar_forecast_tomorrow: 'solar_forecast_tomorrow',
-                    solar_energy: 'solar_energy_total', solar_energy_today: 'solar_energy_today'
+                    solar_energy: 'solar_energy_total', solar_energy_today: 'solar_energy_today',
+                    house_energy_today: 'house_energy_today'
                 };
 
                 const t = (key) => translations[lang.value][key] || key;
