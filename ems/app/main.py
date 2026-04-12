@@ -332,12 +332,12 @@ async def sensor_poller():
                             for attr_try in ["price_today", "today", "raw_today", "prices_today"]:
                                 today_raw = attrs.get(attr_try)
                                 if today_raw:
-                                    price_arrays[f"{prefix}_prices_today"] = extract_price_array(today_raw)
+                                    price_arrays[f"{prefix}_prices_today"], _ = extract_price_array(today_raw)
                                     break
                             for attr_try in ["price_tomorrow", "tomorrow", "raw_tomorrow", "prices_tomorrow"]:
                                 tomorrow_raw = attrs.get(attr_try)
                                 if tomorrow_raw:
-                                    price_arrays[f"{prefix}_prices_tomorrow"] = extract_price_array(tomorrow_raw)
+                                    price_arrays[f"{prefix}_prices_tomorrow"], _ = extract_price_array(tomorrow_raw)
                                     break
 
             # 1. Update Survival SOC
