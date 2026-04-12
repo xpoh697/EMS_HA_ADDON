@@ -397,109 +397,6 @@ def load_tracking_states():
 
 load_tracking_states()
 
-# Price arrays for the chart
-price_arrays = {
-    "buy_prices_tomorrow": [],
-    "sell_prices_tomorrow": [],
-    "solar_forecast_today": [],
-    "solar_forecast_tomorrow": []
-}
-
-def get_sensor_value(state_obj: dict, attr_name: str = None):
-    """Extract value from state or attribute."""
-    if not state_obj: return 0
-    try:
-        if attr_name and attr_name in state_obj.get("attributes", {}):
-            return float(state_obj["attributes"][attr_name])
-        return float(state_obj.get("state", 0))
-    except (ValueError, TypeError):
-        return 0
-
-def extract_price_array(raw, target_date=None):
-    """
-    Extract hourly price/solar array from various HA sensor attribute formats.
-    Returns (list_of_values, found_target_date_match)
-    """
-    if not raw:
-        return [], False
-
-    # 1. Handle Dictionary of ISO timestamps (e.g., Solcast wh_hours)
-    if isinstance(raw, dict):
-        try:
-            sorted_keys = sorted(raw.keys())
-            return [float(raw[k]) for k in sorted_keys], True
-        except:
-            return [], False
-
-    # 2. Handle List formats
-    if isinstance(raw, list):
-        if not raw: return [], False
-        
-        # Check if first item is a dict with timestamps
-        first = raw[0]
-        if isinstance(first, dict) and any(k in first for k in ["period_start", "start", "time", "datetime"]):
-            # Timestamp aggregation mode
-            buckets = [0.0] * 24
-            counts = [0] * 24
-            target_str = target_date.strftime("%Y-%m-%d") if target_date else None
-            found_target = False
-            
-            for item in raw:
-                try:
-                    ts_str = item.get("period_start") or item.get("start") or item.get("time") or item.get("datetime")
-                    if not ts_str: continue
-                    
-                    # Robust ISO parsing
-                    clean_ts = ts_str.replace('Z', '+00:00').replace(' ', 'T')
-                    dt = datetime.datetime.fromisoformat(clean_ts)
-                    
-                    # Filter by date if requested
-                    if target_str and dt.strftime("%Y-%m-%d") != target_str:
-                        continue
-                    
-                    hour = dt.hour
-                    
-                    # Correctly handle 0.0 values
-                    val = 0
-                    for key in ["pv_estimate", "estimate", "value", "price", "total"]:
-                        v = item.get(key)
-                        if v is not None:
-                            val = v
-                            break
-                    
-                    buckets[hour] += float(val)
-                    counts[hour] += 1
-                    found_target = True
-                except: continue
-                
-            if found_target:
-                # Return averaged values
-                result = []
-                for i in range(24):
-                    if counts[i] > 0:
-                        result.append(round(buckets[i] / counts[i], 3))
-                    else:
-                        result.append(buckets[i])
-                return result, True
-
-        # Minimalist list or list of dicts without timestamps
-        result = []
-        for item in raw:
-            if isinstance(item, (int, float)):
-                result.append(float(item))
-            elif isinstance(item, dict):
-                val = 0
-                for key in ["pv_estimate", "estimate", "value", "price", "total"]:
-                    v = item.get(key)
-                    if v is not None:
-                        val = v
-                        break
-                try: result.append(float(val))
-                except: result.append(0.0)
-        return result, len(result) > 0
-
-    return [], False
-
 async def save_hourly_solar_stats(prev_hour_ts):
     """Calculates and saves hourly solar metrics to the database."""
     from app.models.database import SolarHourlyStat
@@ -1058,7 +955,7 @@ async def add_headers(request: Request, call_next):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    response.headers["X-Version"] = "1.3.42"
+    response.headers["X-Version"] = "1.3.43"
     return response
 
 # UI Mounting
