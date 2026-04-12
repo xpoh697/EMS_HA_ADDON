@@ -4,7 +4,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
-    \"\"\"Parses raw HA attribute data into a 24-hour array of floats.\"\"\"
+    """Parses raw HA attribute data into a 24-hour array of floats."""
     if not raw:
         return [0.0] * 24, False
         

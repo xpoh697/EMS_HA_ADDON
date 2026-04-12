@@ -5,7 +5,7 @@ from app.models.database import SessionLocal, HouseHourlyStat
 logger = logging.getLogger(__name__)
 
 def save_hourly_house_stats(prev_hour_ts, house_tracking, current_sensors):
-    \"\"\"Calculates and persists the actual house consumption for the previous hour.\"\"\"
+    """Calculates and persists the actual house consumption for the previous hour."""
     db = SessionLocal()
     try:
         cur_e = current_sensors.get("house_energy_today")

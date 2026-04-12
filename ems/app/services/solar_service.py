@@ -5,7 +5,7 @@ from app.models.database import SessionLocal, SolarHourlyStat
 logger = logging.getLogger(__name__)
 
 def save_hourly_solar_stats(prev_hour_ts, solar_tracking, current_sensors, price_arrays):
-    \"\"\"Calculates and persists the actual solar generation for the previous hour.\"\"\"
+    """Calculates and persists the actual solar generation for the previous hour."""
     db = SessionLocal()
     try:
         cur_e = current_sensors.get("solar_energy_total")
@@ -47,7 +47,7 @@ def save_hourly_solar_stats(prev_hour_ts, solar_tracking, current_sensors, price
         db.close()
 
 def get_solar_correction_factors():
-    \"\"\"Calculates correction factors (Actual/Forecast) over the last 14 days.\"\"\"
+    """Calculates correction factors (Actual/Forecast) over the last 14 days."""
     db = SessionLocal()
     try:
         cutoff = datetime.datetime.now() - datetime.timedelta(days=14)
