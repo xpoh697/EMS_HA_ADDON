@@ -88,7 +88,7 @@ current_sensors = {
     "battery_soc": 0, "solar_power": 0, "buy_price": 0, "sell_price": 0, "house_power": 0,
     "survival_soc": 20, "price_tomorrow": 0, "currency": "EUR", "current_hour": 0,
     "solar_forecast_today": 0, "solar_forecast_tomorrow": 0,
-    "solar_energy_total": 0
+    "solar_energy_total": 0, "solar_energy_today": 0
 }
 
 # Solar tracking state
@@ -97,6 +97,7 @@ solar_tracking = {
     "integration_sum_watts": 0,
     "sample_count": 0,
     "hour_start_energy": None,
+    "day_start_energy": None,
     "last_hourly_stats": [] # 24h history for chart
 }
 
@@ -306,6 +307,27 @@ async def sensor_poller():
             
             # 4. Coordinate Loads via Guardian
             guardian.coordinate(handlers, current_sensors, can_use_energy)
+
+            # 5. Calculate Daily Solar Yield
+            import datetime
+            now = datetime.datetime.now()
+            if now.hour == 0 and now.minute == 0:
+                solar_tracking["day_start_energy"] = current_sensors.get("solar_energy_total")
+
+            today_sum = 0
+            if current_sensors.get("solar_energy_total") and solar_tracking.get("day_start_energy") is not None:
+                today_sum = max(0, current_sensors["solar_energy_total"] - solar_tracking["day_start_energy"])
+            else:
+                try:
+                    from app.models.database import SolarHourlyStat
+                    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                    history = db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp >= today_start).all()
+                    today_sum = sum(h.actual_kwh for h in history)
+                    if solar_tracking["sample_count"] > 0:
+                        current_wh = (solar_tracking["integration_sum_watts"] / solar_tracking["sample_count"]) / 1000.0
+                        today_sum += current_wh
+                except: pass
+            current_sensors["solar_energy_today"] = round(today_sum, 2)
             
         except Exception as e:
             logger.error(f"Error in sensor poller: {e}")

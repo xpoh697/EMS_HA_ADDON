@@ -165,6 +165,7 @@
                     <div class="absolute -right-5 -top-5 w-20 h-20 bg-yellow-500/5 rounded-full blur-2xl"></div>
                     <h3 class="text-gray-400 uppercase text-[10px] tracking-widest mb-3">{{ t('solar') }}</h3>
                     <div class="text-2xl font-bold orbitron text-yellow-400 mb-1">{{ dashboard.sensors.solar_power || 0 }} <span style="font-size: 12px; color: #64748b;">W</span></div>
+                    <div class="text-[10px] text-gray-500 orbitron border-t border-white/5 pt-2 mt-2">TODAY: {{ dashboard.sensors.solar_energy_today || 0 }} <span class="text-[8px]">kWh</span></div>
                 </div>
                 <div class="glass p-6 rounded-3xl relative overflow-hidden cursor-pointer hover:bg-white/10 transition" @click="openSolarModal">
                     <div class="absolute -right-5 -top-5 w-20 h-20 bg-blue-500/5 rounded-full blur-2xl"></div>
