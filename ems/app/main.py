@@ -396,96 +396,6 @@ def load_tracking_states():
 load_tracking_states()
 
 # Price arrays for the chart
-price_arrays = {
-    "buy_prices_tomorrow": [],
-    "sell_prices_tomorrow": [],
-    "solar_forecast_today": [],
-    "solar_forecast_tomorrow": []
-}
-
-def get_sensor_value(state_obj: dict, attr_name: str = None):
-    """Extract value from state or attribute."""
-    if not state_obj: return 0
-    try:
-        if attr_name and attr_name in state_obj.get("attributes", {}):
-            return float(state_obj["attributes"][attr_name])
-        return float(state_obj.get("state", 0))
-    except (ValueError, TypeError):
-        return 0
-
-
-def extract_price_array(raw, target_date=None, is_solar=False):
-    """
-    Extract hourly array from HA sensor attributes.
-    target_date: datetime.date object to filter for (usually Today or Tomorrow).
-    is_solar: If True, values are SUMMED (Energy Wh->kWh). If False, values are AVERAGED (Price).
-    Returns (24_item_list, success_bool)
-    """
-    if not raw:
-        return [0.0]*24, False
-
-    buckets = [[] for _ in range(24)]
-    found = False
-    
-    # Standardize input to a list of (datetime, value)
-    items = []
-    if isinstance(raw, dict):
-        for k, v in raw.items():
-            try:
-                # Handle ISO timestamps or relative keys
-                clean_ts = k.replace('Z', '+00:00').replace(' ', 'T')
-                dt = datetime.datetime.fromisoformat(clean_ts)
-                items.append((dt, float(v)))
-            except: continue
-    elif isinstance(raw, list):
-        for item in raw:
-            try:
-                if isinstance(item, (int, float)):
-                    # Simple list assumes index is hour? No, that's brittle. 
-                    # We only support lists of values if they match 24/48 items.
-                    continue 
-                if isinstance(item, dict):
-                    ts_str = item.get("period_start") or item.get("start") or item.get("time") or item.get("datetime")
-                    if not ts_str: continue
-                    clean_ts = ts_str.replace('Z', '+00:00').replace(' ', 'T')
-                    dt = datetime.datetime.fromisoformat(clean_ts)
-                    val = 0
-                    for key in ["pv_estimate", "estimate", "value", "price", "total", "amount"]:
-                        v = item.get(key)
-                        if v is not None:
-                            val = float(v)
-                            break
-                    items.append((dt, val))
-            except: continue
-
-    # Filter and bucket
-    target_str = target_date.strftime("%Y-%m-%d") if target_date else None
-    for dt, val in items:
-        if target_str and dt.strftime("%Y-%m-%d") != target_str:
-            continue
-        hour = dt.hour
-        if 0 <= hour <= 23:
-            buckets[hour].append(val)
-            found = True
-
-    # Aggregate
-    result = [0.0]*24
-    for h in range(24):
-        vals = buckets[h]
-        if not vals: continue
-        if is_solar:
-            # Solar Summation (Wh -> kWh detection)
-            s = sum(vals)
-            if s > 100.0: # Likely Wh
-                result[h] = round(s / 1000.0, 3)
-            else:
-                result[h] = round(s, 3)
-        else:
-            # Price/Power Averaging
-            result[h] = round(sum(vals) / len(vals), 4)
-
-    return result, found
-
 def load_handlers():
     """Load load managers from database config."""
     global handlers
@@ -1171,7 +1081,7 @@ async def add_headers(request: Request, call_next):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    response.headers["X-Version"] = "1.3.44"
+    response.headers["X-Version"] = "1.3.45"
     return response
 
 # UI Mounting
