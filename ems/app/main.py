@@ -468,7 +468,6 @@ async def sensor_poller():
             
             if config:
                 # Update current hour
-                import datetime
                 current_sensors["current_hour"] = datetime.datetime.now().hour
 
                 # Load strategy limits from DB
@@ -834,7 +833,7 @@ async def add_headers(request: Request, call_next):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    response.headers["X-Version"] = "1.3.40"
+    response.headers["X-Version"] = "1.3.41"
     return response
 
 # UI Mounting
