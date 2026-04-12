@@ -448,6 +448,7 @@
                 solar_forecast_today: 'Прогноз Солнца Сегодня (кВт*ч)',
                 solar_forecast_tomorrow: 'Прогноз Солнца Завтра (кВт*ч)',
                 solar_energy_total: 'Общая выработка (kWh)',
+                solar_energy_today: 'Выработка сегодня (kWh)',
                 guardian_hint: 'Хранитель следит за лимитом мощности и отключает нагрузки по приоритету.',
                 price_chart: 'Цены за 24 часа', no_price_data: 'Нет данных о ценах. Привяжите сенсоры цен в настройках.',
                 export: 'ЭКСПОРТ', import: 'ИМПОРТ', token_hint: 'Используйте, если автоматическая авторизация через Supervisor не работает.',
@@ -473,6 +474,7 @@
                 solar_forecast_today: 'Solar Forecast Today (kWh)',
                 solar_forecast_tomorrow: 'Solar Forecast Tomorrow (kWh)',
                 solar_energy_total: 'Cumulative Solar Yield (kWh)',
+                solar_energy_today: 'Solar Yield Today (kWh)',
                 guardian_hint: 'Guardian monitors real-time house power and enforces priorities.',
                 price_chart: '24h Price Chart', no_price_data: 'No price data. Assign price sensors in settings.',
                 export: 'EXPORT', import: 'IMPORT', token_hint: 'Use this only if Supervisor auto-auth fails.',
@@ -498,6 +500,7 @@
                 solar_forecast_today: 'Prognoza Słońca Dzisiaj (kWh)',
                 solar_forecast_tomorrow: 'Prognoza Słońca Jutro (kWh)',
                 solar_energy_total: 'Produkcja Całkowita (kWh)',
+                solar_energy_today: 'Produkcja Dzisiaj (kWh)',
                 guardian_hint: 'Strażnik monitoruje moc domu w czasie rzeczywistym i egzekwuje priorytety.',
                 price_chart: 'Ceny 24h', no_price_data: 'Brak danych cenowych. Przypisz czujniki cen w ustawieniach.',
                 strategy_limits: 'Limity Strategii',
@@ -523,7 +526,8 @@
                 const settings = ref({
                     global_sensors: { 
                         soc: '', solar: '', buy_price: '', sell_price: '', house_power: '',
-                        solar_forecast_today: '', solar_forecast_tomorrow: '', solar_energy: ''
+                        solar_forecast_today: '', solar_forecast_tomorrow: '', solar_energy: '',
+                        solar_energy_today: ''
                     },
                     strategy_limits: {
                         buy_max_price: 0.05,
@@ -539,7 +543,7 @@
 
                 const searchQueries = reactive({
                     soc: '', solar: '', buy_price: '', sell_price: '', house_power: '',
-                    solar_forecast_today: '', solar_forecast_tomorrow: ''
+                    solar_forecast_today: '', solar_forecast_tomorrow: '', solar_energy_today: ''
                 });
                 const activeSearch = ref(null);
                 const solarModal = reactive({ show: false, chart: null });
@@ -547,7 +551,7 @@
                 const sensorLabels = {
                     soc: 'soc', solar: 'solar', buy_price: 'buy_price', sell_price: 'sell_price', house_power: 'house_power',
                     solar_forecast_today: 'solar_forecast_today', solar_forecast_tomorrow: 'solar_forecast_tomorrow',
-                    solar_energy: 'solar_energy_total'
+                    solar_energy: 'solar_energy_total', solar_energy_today: 'solar_energy_today'
                 };
 
                 const t = (key) => translations[lang.value][key] || key;

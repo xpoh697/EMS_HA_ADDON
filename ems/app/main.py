@@ -303,7 +303,8 @@ async def sensor_poller():
                     "house_power": "house_power",
                     "solar_forecast_today": "solar_forecast_today",
                     "solar_forecast_tomorrow": "solar_forecast_tomorrow",
-                    "solar_energy": "solar_energy_total"
+                    "solar_energy": "solar_energy_total",
+                    "solar_energy_today": "solar_energy_today"
                 }
                 
                 for cfg_key, sensor_key in mapping.items():
@@ -352,26 +353,30 @@ async def sensor_poller():
             # 4. Coordinate Loads via Guardian
             guardian.coordinate(handlers, current_sensors, can_use_energy)
 
-            # 5. Calculate Daily Solar Yield
-            import datetime
-            now = datetime.datetime.now()
-            if now.hour == 0 and now.minute == 0:
-                solar_tracking["day_start_energy"] = current_sensors.get("solar_energy_total")
-
-            today_sum = 0
-            if current_sensors.get("solar_energy_total") and solar_tracking.get("day_start_energy") is not None:
-                today_sum = max(0, current_sensors["solar_energy_total"] - solar_tracking["day_start_energy"])
+            # 5. Calculate Daily Solar Yield (Skip if dedicated sensor is mapped)
+            if config.get("solar_energy_today") and current_sensors.get("solar_energy_today") is not None:
+                # Use value directly from HA
+                pass
             else:
-                try:
-                    from app.models.database import SolarHourlyStat
-                    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                    history = db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp >= today_start).all()
-                    today_sum = sum(h.actual_kwh for h in history)
-                    if solar_tracking["sample_count"] > 0:
-                        current_wh = (solar_tracking["integration_sum_watts"] / solar_tracking["sample_count"]) / 1000.0
-                        today_sum += current_wh
-                except: pass
-            current_sensors["solar_energy_today"] = round(today_sum, 2)
+                import datetime
+                now = datetime.datetime.now()
+                if now.hour == 0 and now.minute == 0:
+                    solar_tracking["day_start_energy"] = current_sensors.get("solar_energy_total")
+
+                today_sum = 0
+                if current_sensors.get("solar_energy_total") and solar_tracking.get("day_start_energy") is not None:
+                    today_sum = max(0, current_sensors["solar_energy_total"] - solar_tracking["day_start_energy"])
+                else:
+                    try:
+                        from app.models.database import SolarHourlyStat
+                        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                        history = db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp >= today_start).all()
+                        today_sum = sum(h.actual_kwh for h in history)
+                        if solar_tracking["sample_count"] > 0:
+                            current_wh = (solar_tracking["integration_sum_watts"] / solar_tracking["sample_count"]) / 1000.0
+                            today_sum += current_wh
+                    except: pass
+                current_sensors["solar_energy_today"] = round(today_sum, 2)
             
         except Exception as e:
             logger.error(f"Error in sensor poller: {e}")
