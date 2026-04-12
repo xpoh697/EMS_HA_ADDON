@@ -632,6 +632,10 @@ async def get_solar_detailed():
             # Use history forecast if we have it (snapshot at hour start), else live forecast_array
             base_forecast = hist.forecast_kwh if hist else (forecast_array[h] if h < len(forecast_array) else 0)
             
+            # Unit Normalization: If value is suspiciously high (>100 kWh per hour), assume it's Wh and divide by 1000
+            if base_forecast > 100:
+                base_forecast = base_forecast / 1000.0
+            
             combined.append({
                 "hour": h,
                 "actual": actual_val,
