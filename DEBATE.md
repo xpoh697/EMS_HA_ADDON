@@ -642,3 +642,23 @@
 
 **Окончательное решение**: Выкатываем 1.3.9 с полным фиксом локализации и графиков.
 **Skeptic Approval**: ✅ Одобрено.
+
+---
+
+## v1.3.23: Hourly House Consumption History Implementation
+
+**Archi**: "To build a truly smart EMS, we need to know the house consumption profiles. I propose mirroring the `SolarHourlyStat` pattern to store hourly kWh for the home. This will allow us to predict nightly battery drain and adjust the 'Survival SOC' dynamically. I'll also add an 'N Weeks' retention setting in the UI."
+
+**Skeptic**: 
+1. **DB Growth**: Every new hourly table adds weight. We must enforce strict pruning based on the `N * 7` rule to keep the SQLite file manageable.
+2. **Sensor Resets**: Unlike solar (which usually only goes up), home energy sensors can reset or behave weirdly if the inverter is rebooted. We need a 'safe delta' check: if `current < start`, we either use the raw current or skip the delta to avoid negative/mammoth values.
+3. **Redundancy**: Why not just use the existing `SensorHistory` table? 
+   * *Archi Response*: `SensorHistory` is for raw time-series. `HourlyStat` is summarized, making forecasting calculations MUCH faster.
+
+**Consolidated Plan**: 
+- Implement `HouseHourlyStat` as a separate table for performance. 
+- Implement robust delta calculation in `main.py` with reset protection.
+- Add a configurable `history_weeks` setting with a default of 4 weeks.
+- Strict pruning in the hourly loop.
+
+**Skeptic Approval**: ✅ Одобрено. (Consolidated as safe for deployment).

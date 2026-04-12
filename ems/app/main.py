@@ -102,6 +102,13 @@ solar_tracking = {
     "last_hourly_stats": [] # 24h history for chart
 }
 
+house_tracking = {
+    "hour_start_ts": None,
+    "integration_sum_watts": 0,
+    "sample_count": 0,
+    "hour_start_energy": None
+}
+
 # Price arrays for the chart
 price_arrays = {
     "buy_prices_today": [],
@@ -247,6 +254,49 @@ async def save_hourly_solar_stats(prev_hour_ts):
     finally:
         db.close()
 
+async def save_hourly_house_stats(prev_hour_ts):
+    """Calculates and saves hourly house consumption metrics to the database."""
+    from app.models.database import HouseHourlyStat
+    db = SessionLocal()
+    try:
+        # 1. Calculate Actual Energy (kWh)
+        actual_kwh = 0
+        current_energy = current_sensors.get("house_energy_today")
+        
+        if current_energy and house_tracking["hour_start_energy"]:
+            # Use delta from today's energy sensor. Handle midnight resets (current < start)
+            if current_energy >= house_tracking["hour_start_energy"]:
+                actual_kwh = current_energy - house_tracking["hour_start_energy"]
+            else:
+                # Sensor reset (midnight)? Use current value as the delta for this hour
+                actual_kwh = current_energy
+        elif house_tracking["sample_count"] > 0:
+            # Fallback: Integrate Watts
+            avg_watts = house_tracking["integration_sum_watts"] / house_tracking["sample_count"]
+            actual_kwh = avg_watts / 1000.0 # Wh -> kWh (assuming 1 hour)
+        
+        # 2. Save to DB
+        stat = HouseHourlyStat(
+            timestamp=prev_hour_ts,
+            hour=prev_hour_ts.hour,
+            actual_kwh=float(actual_kwh)
+        )
+        db.add(stat)
+        db.commit()
+        logger.info(f"Saved hourly house stats for {prev_hour_ts.hour}:00. Actual: {actual_kwh:.2f}kWh")
+        
+        # 3. Prune old data (N * 7 days)
+        settings = await get_settings()
+        history_weeks = settings.get("strategy_limits", {}).get("history_weeks", 4)
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=int(history_weeks) * 7)
+        db.query(HouseHourlyStat).filter(HouseHourlyStat.timestamp < cutoff).delete()
+        db.commit()
+        
+    except Exception as e:
+        logger.error(f"Failed to save house stats: {e}")
+    finally:
+        db.close()
+
 def get_solar_correction_factors():
     """Calculates per-hour multipliers based on past 14 days of history."""
     from app.models.database import SolarHourlyStat
@@ -343,12 +393,19 @@ async def sensor_poller():
                             solar_tracking["integration_sum_watts"] += current_sensors[sensor_key]
                             solar_tracking["sample_count"] += 1
                         
+                        if sensor_key == "house_power":
+                            house_tracking["integration_sum_watts"] += current_sensors[sensor_key]
+                            house_tracking["sample_count"] += 1
+                        
                         
                         
                         
                         # Set starting energy if not set
                         if sensor_key == "solar_energy_total" and solar_tracking["hour_start_energy"] is None:
                             solar_tracking["hour_start_energy"] = current_sensors[sensor_key]
+                        
+                        if sensor_key == "house_energy_today" and house_tracking["hour_start_energy"] is None:
+                            house_tracking["hour_start_energy"] = current_sensors[sensor_key]
                         
                         # Extract price arrays from attributes
                         if "price" in cfg_key and state_obj:
@@ -380,6 +437,26 @@ async def sensor_poller():
             
             # 4. Coordinate Loads via Guardian
             guardian.coordinate(handlers, current_sensors, can_use_energy)
+
+            # 5. Hourly Tasks & Reset
+            if solar_tracking["hour_start_ts"] is None:
+                solar_tracking["hour_start_ts"] = now
+                house_tracking["hour_start_ts"] = now
+
+            if now.hour != solar_tracking["hour_start_ts"].hour:
+                try:
+                    # Trigger Hourly Tasks
+                    prev_hour_ts = now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
+                    await save_hourly_solar_stats(prev_hour_ts)
+                    await save_hourly_house_stats(prev_hour_ts)
+                    
+                    # Reset Tracking
+                    solar_tracking.update({"integration_sum_watts": 0, "sample_count": 0, "hour_start_energy": current_sensors.get("solar_energy_total")})
+                    house_tracking.update({"integration_sum_watts": 0, "sample_count": 0, "hour_start_energy": current_sensors.get("house_energy_today")})
+                    solar_tracking["hour_start_ts"] = now
+                    house_tracking["hour_start_ts"] = now
+                except Exception as e:
+                    logger.error(f"Error in hourly task trigger: {e}")
 
             # 5. Calculate Daily Solar Yield (Skip if dedicated sensor is mapped)
             mapped_today_sensor = config.get("solar_energy_today")

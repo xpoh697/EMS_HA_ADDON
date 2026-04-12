@@ -275,6 +275,17 @@
                     </div>
                 </div>
             </div>
+
+            <div class="glass p-8 rounded-3xl mt-8">
+                <h3 class="text-gray-400 uppercase text-[10px] tracking-widest mb-6">{{ t('system_params') }}</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <label style="display: block; font-size: 11px; text-transform: uppercase; color: #94a3b8; letter-spacing: 2px; font-weight: 700;">{{ t('history_weeks') }}</label>
+                        <input type="number" v-model="settings.strategy_limits.history_weeks" min="1" max="52" style="display: block; width: 100%; box-sizing: border-box; background: #1e293b; border: 2px solid #334155; border-radius: 10px; padding: 10px 14px; font-size: 13px; color: #94a3b8; outline: none; min-height: 42px;">
+                        <p style="font-size: 10px; color: #475569; margin-top: 4px;">{{ t('history_weeks_hint') }}</p>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Settings View -->
@@ -282,7 +293,7 @@
             <h2 class="text-3xl font-bold orbitron mb-8 flex items-center gap-4">
                 <button @click="view = 'dashboard'" class="text-gray-500 hover:text-white transition">←</button>
                 {{ t('sys_config') }}
-                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.22</span>
+                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.23</span>
             </h2>
             
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -478,7 +489,9 @@
                 actual: 'Факт (Архив)',
                 forecast_raw: 'Прогноз (Solcast)',
                 forecast_corr: 'Прогноз (С учетом тени)',
-                house_energy_today: 'Потребление дома сегодня (kWh)'
+                house_energy_today: 'Потребление дома сегодня (kWh)',
+                history_weeks: 'Глубина истории (недель)',
+                history_weeks_hint: 'Сколько недель хранить почасовую историю потребления для прогноза.'
             },
             EN: {
                 config: 'CONFIG', online: 'SYSTEM ONLINE', inv_mode: 'Inverter Mode', priority: 'Priority',
@@ -505,7 +518,9 @@
                 actual: 'Actual (Historical)',
                 forecast_raw: 'Forecast (Raw)',
                 forecast_corr: 'Forecast (Corrected)',
-                house_energy_today: 'House Energy Today (kWh)'
+                house_energy_today: 'House Energy Today (kWh)',
+                history_weeks: 'History Retention (Weeks)',
+                history_weeks_hint: 'How many weeks to keep hourly consumption history for forecasting.'
             },
             PL: {
                 config: 'KONFIG', online: 'SYSTEM ONLINE', inv_mode: 'Tryb Inwertera', priority: 'Priorytet',
@@ -531,7 +546,9 @@
                 actual: 'Faktyczne (Historia)',
                 forecast_raw: 'Prognoza (Solcast)',
                 forecast_corr: 'Prognoza (Skorygowana)',
-                house_energy_today: 'Zużycie domu dzisiaj (kWh)'
+                house_energy_today: 'Zużycie domu dzisiaj (kWh)',
+                history_weeks: 'Retencja historii (tygodnie)',
+                history_weeks_hint: 'Ile tygodni przechowywać godzinową historię zużycia do prognozowania.'
             }
         };
 
@@ -554,7 +571,8 @@
                         sale_pv_no_bat_max_hour: 10,
                         sale_pv_bat_min_price: 0.5,
                         sale_pv_bat_min_soc: 50,
-                        emergency_soc: 20
+                        emergency_soc: 20,
+                        history_weeks: 4
                     },
                     loads: []
                 });
