@@ -162,7 +162,7 @@
             <!-- Solar, House & Forecasts -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8" style="margin-top: 24px;">
                 <!-- House Usage card -->
-                <div class="glass p-6 rounded-3xl relative overflow-hidden">
+                <div class="glass p-6 rounded-3xl relative overflow-hidden cursor-pointer hover:bg-white/10 transition" @click="openHouseModal">
                     <div class="absolute -right-5 -top-5 w-20 h-20 bg-indigo-500/10 rounded-full blur-2xl"></div>
                     <h3 class="text-gray-400 uppercase text-[10px] tracking-widest mb-3">{{ t('house_power') }}</h3>
                     <div class="text-2xl font-bold orbitron text-indigo-300 mb-1">{{ dashboard.sensors.house_power || 0 }} <span style="font-size: 12px; color: #64748b;">W</span></div>
@@ -293,7 +293,7 @@
             <h2 class="text-3xl font-bold orbitron mb-8 flex items-center gap-4">
                 <button @click="view = 'dashboard'" class="text-gray-500 hover:text-white transition">←</button>
                 {{ t('sys_config') }}
-                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.23</span>
+                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.24</span>
             </h2>
             
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -491,7 +491,9 @@
                 forecast_corr: 'Прогноз (С учетом тени)',
                 house_energy_today: 'Потребление дома сегодня (kWh)',
                 history_weeks: 'Глубина истории (недель)',
-                history_weeks_hint: 'Сколько недель хранить почасовую историю потребления для прогноза.'
+                history_weeks_hint: 'Сколько недель хранить почасовую историю потребления для прогноза.',
+                house_modal_title: 'Анализ Потребления Дома',
+                average: 'Среднее (Архив)'
             },
             EN: {
                 config: 'CONFIG', online: 'SYSTEM ONLINE', inv_mode: 'Inverter Mode', priority: 'Priority',
@@ -520,7 +522,9 @@
                 forecast_corr: 'Forecast (Corrected)',
                 house_energy_today: 'House Energy Today (kWh)',
                 history_weeks: 'History Retention (Weeks)',
-                history_weeks_hint: 'How many weeks to keep hourly consumption history for forecasting.'
+                history_weeks_hint: 'How many weeks to keep hourly consumption history for forecasting.',
+                house_modal_title: 'House Consumption Analysis',
+                average: 'Average (Archive)'
             },
             PL: {
                 config: 'KONFIG', online: 'SYSTEM ONLINE', inv_mode: 'Tryb Inwertera', priority: 'Priorytet',
@@ -548,7 +552,9 @@
                 forecast_corr: 'Prognoza (Skorygowana)',
                 house_energy_today: 'Zużycie domu dzisiaj (kWh)',
                 history_weeks: 'Retencja historii (tygodnie)',
-                history_weeks_hint: 'Ile tygodni przechowywać godzinową historię zużycia do prognozowania.'
+                history_weeks_hint: 'Ile tygodni przechowywać godzinową historię zużycia do prognozowania.',
+                house_modal_title: 'Analiza Zużycia Domu',
+                average: 'Średnia (Archiwum)'
             }
         };
 
@@ -584,6 +590,7 @@
                 });
                 const activeSearch = ref(null);
                 const solarModal = reactive({ show: false, chart: null, loading: false, error: null });
+                const houseModal = reactive({ show: false, chart: null, loading: false, error: null });
 
                 const sensorLabels = {
                     soc: 'soc', solar: 'solar', buy_price: 'buy_price', sell_price: 'sell_price', house_power: 'house_power',
@@ -813,6 +820,85 @@
                             }
                         }
                     });
+                };
+
+                        }
+                    });
+                };
+
+                const openHouseModal = async () => {
+                    houseModal.show = true;
+                    houseModal.loading = true;
+                    houseModal.error = null;
+                    
+                    await nextTick();
+                    
+                    try {
+                        const resp = await fetch('api/house_detailed?cb=' + Date.now());
+                        if (!resp.ok) throw new Error("Server returned error: " + resp.status);
+                        const data = await resp.json();
+                        
+                        if (!data.history || data.history.length === 0) {
+                            throw new Error("No historical data found.");
+                        }
+
+                        setTimeout(() => {
+                            const canvas = document.getElementById('houseDetailedChart');
+                            if (!canvas) {
+                                houseModal.error = "Canvas initialization failed.";
+                                houseModal.loading = false;
+                                return;
+                            }
+                            const ctx = canvas.getContext('2d');
+                            if (houseModal.chart) houseModal.chart.destroy();
+                            
+                            houseModal.chart = new Chart(ctx, {
+                                type: 'bar',
+                                data: {
+                                    labels: data.history.map(h => `${h.hour}:00`),
+                                    datasets: [
+                                        {
+                                            label: t('today'),
+                                            data: data.history.map(h => h.actual),
+                                            backgroundColor: '#818cf8',
+                                            borderRadius: 4
+                                        },
+                                        {
+                                            label: t('average'),
+                                            data: data.history.map(h => h.average),
+                                            type: 'line',
+                                            borderColor: '#818cf8',
+                                            borderDash: [5, 5],
+                                            fill: false,
+                                            tension: 0.3
+                                        }
+                                    ]
+                                },
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    plugins: {
+                                        legend: { 
+                                            display: true,
+                                            labels: { color: '#94a3b8', font: { size: 10, family: 'Orbitron' } }
+                                        }
+                                    },
+                                    scales: {
+                                        x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { display: false } },
+                                        y: { 
+                                            ticks: { color: '#64748b', font: { size: 10 } },
+                                            grid: { color: 'rgba(255,255,255,0.05)' }
+                                        }
+                                    }
+                                }
+                            });
+                            houseModal.loading = false;
+                        }, 100);
+                        
+                    } catch (e) {
+                        houseModal.error = e.message;
+                        houseModal.loading = false;
+                    }
                 };
 
                 const openSolarModal = async () => {

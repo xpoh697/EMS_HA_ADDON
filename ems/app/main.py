@@ -643,6 +643,61 @@ async def get_solar_detailed():
     finally:
         db.close()
 
+@app.get("/api/house_detailed")
+async def get_house_detailed():
+    """Returns historical consumption vs archival average for the same weekday."""
+    logger.info(">>> HOUSE_DETAILED_API: Request Start")
+    from app.models.database import HouseHourlyStat
+    db = SessionLocal()
+    try:
+        now = datetime.datetime.now()
+        # 1. Get History for today
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        history_entries = db.query(HouseHourlyStat).filter(HouseHourlyStat.timestamp >= today_start).all()
+        history_map = {h.hour: h for h in history_entries}
+        
+        # 2. Calculate archival average for this day of the week (e.g. 0=Sunday)
+        weekday_str = now.strftime('%w')
+        
+        settings = await get_settings()
+        history_weeks = settings.get("strategy_limits", {}).get("history_weeks", 4)
+        history_cutoff = now - datetime.timedelta(days=int(history_weeks) * 7)
+        
+        from sqlalchemy import text
+        # Using raw SQL for efficient SQLite weekday filtering
+        archive_stats = db.query(HouseHourlyStat).filter(
+            HouseHourlyStat.timestamp >= history_cutoff,
+            HouseHourlyStat.timestamp < today_start,
+            text(f"strftime('%w', timestamp) = '{weekday_str}'")
+        ).all()
+        
+        # Group by hour and average
+        archival_map = {}
+        hour_counts = {}
+        for s in archive_stats:
+            archival_map[s.hour] = archival_map.get(s.hour, 0) + s.actual_kwh
+            hour_counts[s.hour] = hour_counts.get(s.hour, 0) + 1
+            
+        for h in archival_map:
+            archival_map[h] = archival_map[h] / hour_counts[h]
+            
+        # 3. Build a full 24-hour dataset
+        combined = []
+        for h in range(24):
+            hist = history_map.get(h)
+            actual_val = hist.actual_kwh if hist else 0
+            avg_val = archival_map.get(h, 0)
+            
+            combined.append({
+                "hour": h,
+                "actual": actual_val,
+                "average": avg_val
+            })
+            
+        return {"history": combined}
+    finally:
+        db.close()
+
 @app.get("/api/dashboard")
 async def get_dashboard():
     return {
