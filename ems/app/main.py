@@ -10,6 +10,7 @@ from app.models.database import init_db, SessionLocal, SystemSetting
 import logging
 import os
 import json
+import datetime
 
 # Setup
 logging.basicConfig(level=logging.INFO)
@@ -318,6 +319,7 @@ async def sensor_poller():
                         if sensor_key == "solar_power":
                             solar_tracking["integration_sum_watts"] += current_sensors[sensor_key]
                             solar_tracking["sample_count"] += 1
+                        
                         
                         # Set starting energy if not set
                         if sensor_key == "solar_energy_total" and solar_tracking["hour_start_energy"] is None:
