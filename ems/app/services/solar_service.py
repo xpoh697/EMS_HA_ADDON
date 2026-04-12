@@ -71,3 +71,76 @@ def get_solar_correction_factors():
         return factors
     finally:
         db.close()
+
+async def repopulate_history_from_ha(db, ha_client, entity_id, price_arrays):
+    """Reconstructs SolarHourlyStat records from HA history if local DB is empty."""
+    try:
+        now = datetime.datetime.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Check if we already have data for today
+        existing = db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp >= today_start).count()
+        # If we have more than 2 records, we probably don't need reconstruction
+        if existing >= 3:
+            return
+
+        logger.info(f">>> SOLAR_SERVICE: Attempting to reconstruct history from HA for {entity_id}")
+        history = await ha_client.get_history(entity_id, today_start)
+        if not history or not isinstance(history, list):
+            logger.warning(">>> SOLAR_SERVICE: No history found in HA for reconstruction.")
+            return
+
+        # Group data by hour
+        buckets = {h: [] for h in range(now.hour + 1)}
+        for entry in history:
+            try:
+                # HA history might have 's' (state) and 'lu' (last_updated) in minimal_response
+                v_str = entry.get("state") or entry.get("s")
+                t_str = entry.get("last_updated") or entry.get("lu")
+                if v_str is None or t_str is None or v_str in ["unknown", "unavailable"]:
+                    continue
+                
+                val = float(v_str)
+                dt = datetime.datetime.fromisoformat(t_str.replace("Z", "+00:00"))
+                # Convert to local time for grouping
+                dt_local = dt.astimezone() 
+                
+                if dt_local.date() == now.date() and dt_local.hour <= now.hour:
+                    buckets[dt_local.hour].append(val)
+            except: continue
+
+        forecast_today = price_arrays.get("solar_forecast_today", [0.0]*24)
+        reconstructed_count = 0
+        
+        for h in range(now.hour):
+            # Already have record for this hour?
+            h_start = today_start.replace(hour=h)
+            exists = db.query(SolarHourlyStat).filter(
+                SolarHourlyStat.timestamp >= h_start,
+                SolarHourlyStat.timestamp < h_start + datetime.timedelta(hours=1)
+            ).first()
+            if exists: continue
+
+            vals = buckets.get(h, [])
+            if len(vals) < 2: continue
+            
+            # For cumulative energy today sensor: Hour production = Max - Min in that hour
+            delta = max(vals) - min(vals)
+            
+            # Basic sanity check
+            if delta < 0 or delta > 20.0: continue 
+
+            stat = SolarHourlyStat(
+                timestamp=h_start,
+                hour=h,
+                actual_kwh=float(delta),
+                forecast_kwh=float(forecast_today[h]) if h < len(forecast_today) else 0.0
+            )
+            db.add(stat)
+            reconstructed_count += 1
+
+        db.commit()
+        if reconstructed_count > 0:
+            logger.info(f">>> SOLAR_SERVICE: Reconstructed {reconstructed_count} hours of solar history.")
+    except Exception as e:
+        logger.error(f">>> SOLAR_SERVICE: History reconstruction failed: {e}")

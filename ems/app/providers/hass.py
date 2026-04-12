@@ -163,6 +163,28 @@ class HomeAssistantClient:
             logger.error(f"Error fetching HA config: {e}")
             return None
 
+    async def get_history(self, entity_id: str, start_time: datetime.datetime) -> List[Any]:
+        """Fetch history for a specific entity from HA Recorder."""
+        if self.auth_failed:
+            return []
+        
+        # Format: /api/history/period/<timestamp>?filter_entity_id=<entity_id>
+        ts_iso = start_time.isoformat()
+        url = f"{self.current_base_url}/history/period/{ts_iso}?filter_entity_id={entity_id}&minimal_response"
+        
+        try:
+            response = await self.client.get(url, headers=self.headers)
+            if response.status_code == 401:
+                self._handle_auth_error()
+                return []
+            response.raise_for_status()
+            data = response.json()
+            # HA returns a list of lists (one list per entity)
+            return data[0] if data and isinstance(data, list) else []
+        except Exception as e:
+            logger.error(f"Error fetching history for {entity_id}: {e}")
+            return []
+
     async def turn_on(self, entity_id: str) -> bool:
         domain = entity_id.split(".")[0]
         return await self.call_service(domain, "turn_on", {"entity_id": entity_id})

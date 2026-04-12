@@ -11,7 +11,7 @@ from app.models.database import init_db, SessionLocal, SystemSetting, SolarHourl
 from app.core.state import state_manager
 from app.utils.sensor_utils import get_sensor_value
 from app.services.price_service import extract_price_array
-from app.services.solar_service import save_hourly_solar_stats, get_solar_correction_factors
+from app.services.solar_service import save_hourly_solar_stats, get_solar_correction_factors, repopulate_history_from_ha
 from app.services.house_service import save_hourly_house_stats
 
 # Setup
@@ -164,6 +164,11 @@ async def sensor_poller():
                                     if f"solar_{day}" not in state_manager.current_sensors.get("_picked_attrs", []):
                                         logger.info(f">>> POLLER: Identified Solar {day} attribute: {attr}")
                                         state_manager.current_sensors.setdefault("_picked_attrs", []).append(f"solar_{day}")
+                                        
+                                        # Trigger History Recovery for Today if needed
+                                        if day == "today":
+                                            db_hist = SessionLocal()
+                                            asyncio.create_task(repopulate_history_from_ha(db_hist, state_manager.ha_client, state_obj["entity_id"], state_manager.price_arrays))
                                     break
                     else:
                         # v1.3.55: Fuzzy match for prices (supports "Price today" spaced names)
@@ -324,7 +329,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.58"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.59"
     })
     return response
 
