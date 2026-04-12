@@ -248,9 +248,16 @@
                         </h2>
                         <button @click="solarModal.show = false" class="text-gray-500 hover:text-white text-2xl">×</button>
                     </div>
-                    
-                    <div style="position: relative; height: 400px; width: 100%;">
-                        <canvas id="solarDetailedChart"></canvas>
+
+                    <div style="position: relative; min-height: 400px; width: 100%;" class="flex items-center justify-center">
+                        <div v-if="solarModal.loading" class="flex flex-col items-center gap-4 z-20">
+                            <div class="w-10 h-10 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                            <span class="orbitron text-[10px] text-blue-400 tracking-widest text-center">FETCHING DATA...</span>
+                        </div>
+                        <div v-else-if="solarModal.error" class="text-red-400 text-xs italic text-center px-10">
+                            {{ solarModal.error }}
+                        </div>
+                        <canvas id="solarDetailedChart" :style="{ opacity: solarModal.loading || solarModal.error ? 0 : 1 }"></canvas>
                     </div>
                     
                     <div class="mt-6 flex gap-6 text-[10px] orbitron tracking-widest text-gray-400">
@@ -546,7 +553,7 @@
                     solar_forecast_today: '', solar_forecast_tomorrow: '', solar_energy_today: ''
                 });
                 const activeSearch = ref(null);
-                const solarModal = reactive({ show: false, chart: null });
+                const solarModal = reactive({ show: false, chart: null, loading: false, error: null });
 
                 const sensorLabels = {
                     soc: 'soc', solar: 'solar', buy_price: 'buy_price', sell_price: 'sell_price', house_power: 'house_power',
@@ -779,66 +786,77 @@
 
                 const openSolarModal = async () => {
                     solarModal.show = true;
-                    // Double wait to ensure canvas is in layout
+                    solarModal.loading = true;
+                    solarModal.error = null;
+                    
+                    // Allow DOM to update v-if
                     await nextTick();
-                    await new Promise(r => setTimeout(r, 100));
                     
                     try {
-                        console.log("Fetching solar details...");
-                        const resp = await fetch('api/solar_detailed');
-                        if (!resp.ok) throw new Error("API error: " + resp.status);
+                        const resp = await fetch('api/solar_detailed?cb=' + Date.now());
+                        if (!resp.ok) throw new Error("Server returned error: " + resp.status);
                         const data = await resp.json();
-                        console.log("Solar data received:", data);
                         
-                        const canvas = document.getElementById('solarDetailedChart');
-                        if (!canvas) {
-                            console.error("Canvas element 'solarDetailedChart' not found!");
-                            return;
+                        if (!data.history || data.history.length === 0) {
+                            throw new Error("No historical or forecast data found.");
                         }
-                        const ctx = canvas.getContext('2d');
-                        if (solarModal.chart) solarModal.chart.destroy();
-                        
-                        solarModal.chart = new Chart(ctx, {
-                            type: 'bar',
-                            data: {
-                                labels: data.history.map(h => `${h.hour}:00`),
-                                datasets: [
-                                    {
-                                        label: t('actual'),
-                                        data: data.history.map(h => h.actual),
-                                        backgroundColor: '#fbbf24',
-                                        borderRadius: 4
-                                    },
-                                    {
-                                        label: t('forecast_raw'),
-                                        data: data.history.map(h => h.forecast),
-                                        type: 'line',
-                                        borderColor: '#60a5fa',
-                                        borderDash: [5, 5],
-                                        fill: false
-                                    },
-                                    {
-                                        label: t('forecast_corr'),
-                                        data: data.history.map(h => h.corrected),
-                                        type: 'line',
-                                        borderColor: '#3b82f6',
-                                        tension: 0.4,
-                                        fill: false
-                                    }
-                                ]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                plugins: { legend: { display: false } },
-                                scales: {
-                                    y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } },
-                                    x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
-                                }
+
+                        // Small additional delay to ensure canvas is ready for drawing
+                        setTimeout(() => {
+                            const canvas = document.getElementById('solarDetailedChart');
+                            if (!canvas) {
+                                solarModal.error = "Canvas initialization failed.";
+                                solarModal.loading = false;
+                                return;
                             }
-                        });
+                            const ctx = canvas.getContext('2d');
+                            if (solarModal.chart) solarModal.chart.destroy();
+                            
+                            solarModal.chart = new Chart(ctx, {
+                                type: 'bar',
+                                data: {
+                                    labels: data.history.map(h => `${h.hour}:00`),
+                                    datasets: [
+                                        {
+                                            label: t('actual'),
+                                            data: data.history.map(h => h.actual),
+                                            backgroundColor: '#fbbf24',
+                                            borderRadius: 4
+                                        },
+                                        {
+                                            label: t('forecast_raw'),
+                                            data: data.history.map(h => h.forecast),
+                                            type: 'line',
+                                            borderColor: '#60a5fa',
+                                            borderDash: [5, 5],
+                                            fill: false
+                                        },
+                                        {
+                                            label: t('forecast_corr'),
+                                            data: data.history.map(h => h.corrected),
+                                            type: 'line',
+                                            borderColor: '#3b82f6',
+                                            tension: 0.4,
+                                            fill: false
+                                        }
+                                    ]
+                                },
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    plugins: { legend: { display: false } },
+                                    scales: {
+                                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } },
+                                        x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+                                    }
+                                }
+                            });
+                            solarModal.loading = false;
+                        }, 150);
                     } catch (e) {
                         console.error("Failed to load solar details:", e);
+                        solarModal.error = "Failed to load data: " + e.message;
+                        solarModal.loading = false;
                     }
                 };
 
