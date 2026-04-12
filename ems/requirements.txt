@@ -3,3 +3,4 @@ uvicorn
 sqlalchemy
 httpx
 python-dotenv
+python-multipart
