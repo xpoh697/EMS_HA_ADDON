@@ -102,15 +102,18 @@ solar_tracking = {
     "last_hourly_stats": [] # 24h history for chart
 }
 
-house_tracking = {
-    "hour_start_ts": None,
-    "integration_sum_watts": 0,
-    "sample_count": 0,
     "hour_start_energy": None
 }
 
-def save_tracking_states():
-    """Persists tracking objects to DB."""
+last_state_save_ts = datetime.datetime.min
+
+def save_tracking_states(force=False):
+    """Persists tracking objects to DB with 5-minute cooldown."""
+    global last_state_save_ts
+    now = datetime.datetime.now()
+    if not force and (now - last_state_save_ts).total_seconds() < 300: # 5 Minutes
+        return
+
     db = SessionLocal()
     try:
         state = {
@@ -134,6 +137,7 @@ def save_tracking_states():
         else:
             setting.value = state
         db.commit()
+        last_state_save_ts = now
     except Exception as e:
         logger.error(f"Failed to save tracking states: {e}")
     finally:
@@ -411,7 +415,7 @@ def get_solar_correction_factors():
             if solar_tracking["hour_start_ts"] is None:
                 solar_tracking["hour_start_ts"] = now.replace(minute=0, second=0, microsecond=0)
                 house_tracking["hour_start_ts"] = now.replace(minute=0, second=0, microsecond=0)
-                save_tracking_states()
+                save_tracking_states(force=True)
 
             if now.hour != solar_tracking["hour_start_ts"].hour:
                 prev_hour_ts = solar_tracking["hour_start_ts"]
@@ -432,7 +436,7 @@ def get_solar_correction_factors():
                 house_tracking["sample_count"] = 0
                 house_tracking["hour_start_energy"] = current_sensors.get("house_energy_today")
                 
-                save_tracking_states()
+                save_tracking_states(force=True)
                 logger.info("Trackers reset and persisted for new hour.")
 
             db = SessionLocal()
@@ -533,8 +537,8 @@ def get_solar_correction_factors():
             # 4. Coordinate Loads via Guardian
             guardian.coordinate(handlers, current_sensors, can_use_energy)
 
-            # 6. Frequent tracking state save (every poll)
-            save_tracking_states()
+            # 6. Frequent tracking state save (every poll, throttled to 5min)
+            save_tracking_states(force=False)
             # 5. Calculate Daily Solar Yield (Skip if dedicated sensor is mapped)
             mapped_today_sensor = config.get("solar_energy_today")
             if mapped_today_sensor and current_sensors.get("solar_energy_today") is not None:
@@ -808,7 +812,7 @@ async def add_headers(request: Request, call_next):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    response.headers["X-Version"] = "1.3.32"
+    response.headers["X-Version"] = "1.3.35"
     return response
 
 # UI Mounting
