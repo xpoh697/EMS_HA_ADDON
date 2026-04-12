@@ -92,4 +92,4 @@ def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
             # Standard average for price/integrated power
             result[h] = round(sum(vals) / len(vals), 3)
             
-    return result, found
+    return result, found_count
