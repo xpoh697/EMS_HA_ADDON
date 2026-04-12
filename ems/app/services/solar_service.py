@@ -79,10 +79,22 @@ async def repopulate_history_from_ha(db, ha_client, entity_id, price_arrays):
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         
         # Check if we already have data for today
-        existing = db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp >= today_start).count()
-        # If we have more than 2 records, we probably don't need reconstruction
-        if existing >= 3:
+        today = now.date()
+        existing_stats = db.query(SolarHourlyStat).filter(SolarHourlyStat.date == today).all()
+        total_kwh = sum(s.actual_kwh for s in existing_stats)
+        count_existing = len(existing_stats)
+        
+        logger.info(f">>> SOLAR_SERVICE: Today's stats in DB: count={count_existing}, sum={total_kwh:.3f} kWh")
+        
+        # Aggressive reconstruction: if we have zero data (< 0.05 kWh) or very few records (< 3)
+        if count_existing >= 3 and total_kwh > 0.05:
+            logger.info(">>> SOLAR_SERVICE: Valid data already exists. Skipping reconstruction.")
             return
+            
+        logger.info(f">>> SOLAR_SERVICE: Attempting aggressive reconstruction for {today}...")
+        # Clear existing 'poison' records for today
+        db.query(SolarHourlyStat).filter(SolarHourlyStat.date == today).delete()
+        db.commit()
 
         logger.info(f">>> SOLAR_SERVICE: Attempting to reconstruct history from HA for {entity_id}")
         history = await ha_client.get_history(entity_id, today_start)

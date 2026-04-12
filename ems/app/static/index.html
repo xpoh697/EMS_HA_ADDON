@@ -95,7 +95,7 @@
         <header class="flex justify-between items-center mb-12">
             <div class="cursor-pointer" @click="view = 'dashboard'">
                 <h1 class="text-4xl font-bold orbitron gradient-text mb-1 tracking-widest">EMS COMMAND</h1>
-                <p class="text-gray-400 text-sm">Energy Management System v1.3.63</p>
+                <p class="text-gray-400 text-sm">Energy Management System v1.3.65</p>
             </div>
             <div class="flex items-center gap-4">
                 <!-- Translation Toggle -->
@@ -264,7 +264,7 @@
             <h2 class="text-3xl font-bold orbitron mb-8 flex items-center gap-4">
                 <button @click="view = 'dashboard'" class="text-gray-500 hover:text-white transition">←</button>
                 {{ t('sys_config') }}
-                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.63</span>
+                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.65</span>
             </h2>
             
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -413,19 +413,34 @@
                 </div>
             </div>
 
-            <div class="mt-8 flex justify-between items-center gap-4">
-                <div class="flex gap-4">
-                    <button @click="exportSettings" class="px-6 py-3 rounded-xl border border-white/10 hover:bg-white/5 text-gray-400 text-xs orbitron transition">
+            <div class="mt-8 pt-8 border-t border-white/5 flex flex-col gap-6">
+                <div class="flex flex-wrap gap-4 items-center">
+                    <button @click="exportSettings" class="px-6 py-3 rounded-xl border border-white/10 hover:bg-white/5 text-gray-400 text-xs orbitron transition flex items-center gap-2">
                         📥 {{ t('export') }}
                     </button>
-                    <button @click="$refs.fileInput.click()" class="px-6 py-3 rounded-xl border border-white/10 hover:bg-white/5 text-gray-400 text-xs orbitron transition">
+                    <button @click="$refs.fileInput.click()" class="px-6 py-3 rounded-xl border border-white/10 hover:bg-white/5 text-gray-400 text-xs orbitron transition flex items-center gap-2">
                         📤 {{ t('import') }}
                     </button>
                     <input type="file" ref="fileInput" @change="importSettings" style="display: none" accept=".json">
+                    
+                    <div class="h-8 w-px bg-white/10 mx-2"></div>
+
+                    <button @click="exportDatabase" class="px-6 py-3 rounded-xl border border-blue-500/30 hover:bg-blue-500/10 text-blue-400 text-xs orbitron transition flex items-center gap-2">
+                        💾 DB EXPORT
+                    </button>
+                    <div class="relative">
+                        <input type="file" ref="dbFileInput" class="hidden" @change="importDatabase">
+                        <button @click="$refs.dbFileInput.click()" class="px-6 py-3 rounded-xl border border-red-500/30 hover:bg-red-500/10 text-red-400 text-xs orbitron transition flex items-center gap-2">
+                            🔥 DB IMPORT
+                        </button>
+                    </div>
                 </div>
-                <button @click="saveSettings" class="bg-blue-600 hover:bg-blue-500 text-white orbitron px-12 py-4 rounded-2xl shadow-lg shadow-blue-500/20 active:scale-95 transition">
-                    {{ t('save') }}
-                </button>
+
+                <div class="flex justify-end">
+                    <button @click="saveSettings" class="bg-blue-600 hover:bg-blue-500 text-white orbitron px-12 py-4 rounded-2xl shadow-lg shadow-blue-500/20 active:scale-95 transition">
+                        {{ t('save') }}
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -986,6 +1001,33 @@
                     }
                 });
 
+                const exportDatabase = () => {
+                    const root = window.location.pathname.replace(/\/$/, '');
+                    window.location.href = root + '/api/db/export';
+                };
+
+                const importDatabase = async (event) => {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    if (!confirm('Are you sure? This will OVERWRITE your current database.')) return;
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    try {
+                        const root = window.location.pathname.replace(/\/$/, '');
+                        const response = await fetch(root + '/api/db/import', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const data = await response.json();
+                        alert(data.message);
+                        location.reload();
+                    } catch (e) {
+                        alert('Import failed: ' + e);
+                    }
+                };
+
                 onMounted(() => {
                     fetchData();
                     fetchSettings();
@@ -998,7 +1040,7 @@
                     saveSettings, addLoad, lang, t, formatPrice, hasPriceData,
                     searchQueries, activeSearch, filteredEntities, selectEntity,
                     exportSettings, importSettings, solarModal, openSolarModal,
-                    houseModal, openHouseModal
+                    houseModal, openHouseModal, exportDatabase, importDatabase
                 };
             }
         }).mount('#app');

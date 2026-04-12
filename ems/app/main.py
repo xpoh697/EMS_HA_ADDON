@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 import logging
 import os
@@ -313,6 +314,24 @@ async def get_house_detailed():
     finally:
         db.close()
 
+@app.get("/api/db/export")
+async def export_db():
+    db_path = "/data/ems_data.db" if os.path.exists("/data") else "ems_data.db"
+    if not os.path.exists(db_path):
+        raise HTTPException(status_code=404, detail="Database file not found")
+    return FileResponse(db_path, filename="ems_data.db", media_type="application/x-sqlite3")
+
+@app.post("/api/db/import")
+async def import_db(file: UploadFile = File(...)):
+    db_path = "/data/ems_data.db" if os.path.exists("/data") else "ems_data.db"
+    try:
+        content = await file.read()
+        with open(db_path, "wb") as f:
+            f.write(content)
+        return {"status": "success", "message": "Database imported successfully. Restart the addon to apply all changes."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/dashboard")
 async def get_dashboard():
     return {
@@ -334,7 +353,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.63"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.65"
     })
     return response
 
