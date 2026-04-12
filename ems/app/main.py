@@ -123,23 +123,22 @@ def get_sensor_value(state_obj: dict, attr_name: str = None):
 def extract_price_array(raw, target_date=None):
     """
     Extract hourly price/solar array from various HA sensor attribute formats.
-    Supports lists of floats, lists of dicts (with/without timestamps), and dicts of timestamps.
-    Aggregates 30-min intervals into hourly buckets if target_date is provided.
+    Returns (list_of_values, found_target_date_match)
     """
     if not raw:
-        return []
+        return [], False
 
     # 1. Handle Dictionary of ISO timestamps (e.g., Solcast wh_hours)
     if isinstance(raw, dict):
         try:
             sorted_keys = sorted(raw.keys())
-            return [float(raw[k]) for k in sorted_keys]
+            return [float(raw[k]) for k in sorted_keys], True
         except:
-            return []
+            return [], False
 
     # 2. Handle List formats
     if isinstance(raw, list):
-        if not raw: return []
+        if not raw: return [], False
         
         # Check if first item is a dict with timestamps
         first = raw[0]
@@ -147,7 +146,7 @@ def extract_price_array(raw, target_date=None):
             # Timestamp aggregation mode
             buckets = [0.0] * 24
             target_str = target_date.strftime("%Y-%m-%d") if target_date else None
-            found_any = False
+            found_target = False
             
             for item in raw:
                 try:
@@ -163,12 +162,12 @@ def extract_price_array(raw, target_date=None):
                         continue
                     
                     hour = dt.hour
-                    val = item.get("pv_estimate") or item.get("value") or item.get("price") or item.get("total") or 0
+                    val = item.get("pv_estimate") or item.get("estimate") or item.get("value") or item.get("price") or item.get("total") or 0
                     buckets[hour] += float(val)
-                    found_any = True
+                    found_target = True
                 except: continue
                 
-            if found_any: return buckets
+            if found_target: return buckets, True
 
         # Minimalist list or list of dicts without timestamps
         result = []
@@ -176,12 +175,12 @@ def extract_price_array(raw, target_date=None):
             if isinstance(item, (int, float)):
                 result.append(float(item))
             elif isinstance(item, dict):
-                val = item.get("pv_estimate") or item.get("value") or item.get("price") or item.get("total") or 0
+                val = item.get("pv_estimate") or item.get("estimate") or item.get("value") or item.get("price") or item.get("total") or 0
                 try: result.append(float(val))
                 except: result.append(0.0)
-        return result
+        return result, len(result) > 0
 
-    return []
+    return [], False
 
 async def save_hourly_solar_stats(prev_hour_ts):
     """Calculates and saves hourly solar metrics to the database."""
@@ -480,6 +479,7 @@ async def get_solar_detailed():
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         history_entries = db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp >= today_start).all()
         history_map = {h.hour: h for h in history_entries}
+        logger.info(f"Detailed Solar API: Found {len(history_entries)} history entries for today.")
         
         # 2. Try to get Live Forecast array from HA for the future
         forecast_array = [0] * 24
@@ -493,8 +493,8 @@ async def get_solar_detailed():
                 for attr_name in ["DetailedForecast", "detailed_forecast", "wh_hours", "wh_period_forecast", "forecast", "forecast_today"]:
                     raw = attrs.get(attr_name)
                     if raw:
-                        forecast_array = extract_price_array(raw, target_date=now.date())
-                        if sum(forecast_array) > 0: break
+                        forecast_array, success = extract_price_array(raw, target_date=now.date())
+                        if success: break
         
         # 3. Build a full 24-hour dataset
         factors = get_solar_correction_factors()
