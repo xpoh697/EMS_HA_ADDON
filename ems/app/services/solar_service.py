@@ -86,9 +86,12 @@ async def repopulate_history_from_ha(db, ha_client, entity_id, price_arrays):
 
         logger.info(f">>> SOLAR_SERVICE: Attempting to reconstruct history from HA for {entity_id}")
         history = await ha_client.get_history(entity_id, today_start)
+        
         if not history or not isinstance(history, list):
-            logger.warning(">>> SOLAR_SERVICE: No history found in HA for reconstruction.")
+            logger.warning(f">>> SOLAR_SERVICE: No history found in HA for {entity_id}.")
             return
+
+        logger.info(f">>> SOLAR_SERVICE: HA History returned {len(history)} items for {entity_id}")
 
         # Group data by hour
         buckets = {h: [] for h in range(now.hour + 1)}

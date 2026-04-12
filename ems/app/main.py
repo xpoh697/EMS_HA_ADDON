@@ -113,10 +113,10 @@ async def sensor_poller():
             # 3. Poll Sensors from Home Assistant
             mapping = {
                 "soc": "battery_soc", "solar": "solar_power", 
-                "buy_price": "buy_price", "sell_price": "sell_price", 
-                "house_power": "house_power", "solar_forecast_today": "solar_forecast_today",
-                "solar_forecast_tomorrow": "solar_forecast_tomorrow", "solar_energy": "solar_energy_total",
-                "solar_energy_today": "solar_energy_today", "house_energy_today": "house_energy_today"
+                "buy_price": "buy_price_today", "sell_price": "sell_price_today", 
+                "buy_price_tomorrow": "buy_price_tomorrow", "sell_price_tomorrow": "sell_price_tomorrow",
+                "house_power": "house_power", "house_energy_total": "house_energy_today",
+                "solar_energy_total": "solar_energy_today", "house_energy_today": "house_energy_today"
             }
             
             for config_key, state_key in mapping.items():
@@ -136,13 +136,14 @@ async def sensor_poller():
                 elif state_key == "house_power":
                     state_manager.house_tracking["integration_sum_watts"] += val
                     state_manager.house_tracking["sample_count"] += 1
-                elif state_key == "solar_energy_total":
+                elif state_key == "solar_energy_today":
                     if state_manager.solar_tracking["hour_start_energy"] is None:
                         state_manager.solar_tracking["hour_start_energy"] = val
                     
-                    # v1.3.61: Correct trigger for History Recovery (on Energy Sensor, only once)
+                    # v1.3.62: Consistent trigger for History Recovery (on solar_energy_today)
                     if not state_manager._history_recovered:
                         state_manager._history_recovered = True
+                        logger.info(f">>> POLLER: Triggering history recovery for {entity_id}")
                         db_hist = SessionLocal()
                         asyncio.create_task(repopulate_history_from_ha(db_hist, state_manager.ha_client, entity_id, state_manager.price_arrays))
                 elif state_key == "house_energy_today" and state_manager.house_tracking["hour_start_energy"] is None:
@@ -331,7 +332,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.61"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.62"
     })
     return response
 
