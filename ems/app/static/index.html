@@ -779,13 +779,23 @@
 
                 const openSolarModal = async () => {
                     solarModal.show = true;
+                    // Double wait to ensure canvas is in layout
                     await nextTick();
+                    await new Promise(r => setTimeout(r, 100));
                     
                     try {
+                        console.log("Fetching solar details...");
                         const resp = await fetch('api/solar_detailed');
+                        if (!resp.ok) throw new Error("API error: " + resp.status);
                         const data = await resp.json();
+                        console.log("Solar data received:", data);
                         
-                        const ctx = document.getElementById('solarDetailedChart').getContext('2d');
+                        const canvas = document.getElementById('solarDetailedChart');
+                        if (!canvas) {
+                            console.error("Canvas element 'solarDetailedChart' not found!");
+                            return;
+                        }
+                        const ctx = canvas.getContext('2d');
                         if (solarModal.chart) solarModal.chart.destroy();
                         
                         solarModal.chart = new Chart(ctx, {
