@@ -63,11 +63,15 @@ def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
 
     # FALLBACK LOGIC: If no items matched by date, but we have a 24-hour sequence 
     # in an attribute clearly labeled "today" or "tomorrow", trust the sequence.
-    if found_count == 0 and len(items) >= 24:
-        # Check if attribute name matches our target day
-        day_tag = "today" if target_dt_obj == datetime.datetime.now().date() else "tomorrow"
-        if day_tag in attr_name.lower():
-            logger.info(f">>> PRICE_SERVICE: Fallback triggered for {attr_name}. Trusting sequence as {day_tag}.")
+    is_today_attr = "today" in attr_name.lower()
+    is_tomorrow_attr = "tomorrow" in attr_name.lower()
+    
+    if found_count == 0 and len(items) >= 24 and (is_today_attr or is_tomorrow_attr):
+        day_tag = "today" if is_today_attr else "tomorrow"
+        # Only trigger fallback if target_date also matches that day intent
+        target_is_today = (target_dt_obj == datetime.datetime.now().date())
+        if (day_tag == "today" and target_is_today) or (day_tag == "tomorrow" and not target_is_today):
+            logger.info(f">>> PRICE_SERVICE: UNCONDITIONAL fallback for {attr_name}. Trusting sequence as {day_tag}.")
             for i, (dt, val) in enumerate(items[:24]):
                 buckets[i].append(val)
                 found_count += 1
@@ -92,4 +96,6 @@ def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
             # Standard average for price/integrated power
             result[h] = round(sum(vals) / len(vals), 3)
             
+    if found_count > 0:
+        logger.info(f">>> PRICE_SERVICE: Result[0-3] for {attr_name}: {result[:3]}")
     return result, found_count
