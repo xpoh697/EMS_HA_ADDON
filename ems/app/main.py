@@ -19,28 +19,28 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="EMS Control API")
 init_db()
 
-def run_once_v1346_reset():
-    """Wipes contaminated solar history to reset correction factors (Run once)."""
+def run_once_v1347_reset():
+    """Wipes contaminated solar history to reset correction factors (Run once for v1.3.46/47)."""
     db = SessionLocal()
     try:
-        setting = db.query(SystemSetting).filter(SystemSetting.key == "v1346_reset_done").first()
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "v1347_reset_done").first()
         if not setting:
-            logger.info(">>> v1.3.46 STARTUP: Clearing poisoned solar history to reset correction factors...")
+            logger.info(">>> v1.3.47 STARTUP: Clearing poisoned solar history to reset correction factors...")
             from app.models.database import SolarHourlyStat
             db.query(SolarHourlyStat).delete()
             
-            reset_flag = SystemSetting(key="v1346_reset_done", value={"done": True})
+            reset_flag = SystemSetting(key="v1347_reset_done", value={"done": True})
             db.add(reset_flag)
             db.commit()
-            logger.info(">>> v1.3.46 STARTUP: Solar history reset successful!")
+            logger.info(">>> v1.3.47 STARTUP: Solar history reset successful!")
         else:
-            logger.info(">>> v1.3.46 STARTUP: History reset already done.")
+            logger.info(">>> v1.3.47 STARTUP: History reset already done.")
     except Exception as e:
-        logger.error(f"Failed to perform v1.3.46 reset: {e}")
+        logger.error(f"Failed to perform v1.3.47 reset: {e}")
     finally:
         db.close()
 
-run_once_v1346_reset()
+run_once_v1347_reset()
 
 
 # Core Components
@@ -1548,7 +1548,7 @@ async def add_headers(request: Request, call_next):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    response.headers["X-Version"] = "1.3.46"
+    response.headers["X-Version"] = "1.3.47"
     return response
 
 # UI Mounting
