@@ -162,7 +162,15 @@ def extract_price_array(raw, target_date=None):
                         continue
                     
                     hour = dt.hour
-                    val = item.get("pv_estimate") or item.get("estimate") or item.get("value") or item.get("price") or item.get("total") or 0
+                    
+                    # Correctly handle 0.0 values (Falsy in Python)
+                    val = 0
+                    for key in ["pv_estimate", "estimate", "value", "price", "total"]:
+                        v = item.get(key)
+                        if v is not None:
+                            val = v
+                            break
+                    
                     buckets[hour] += float(val)
                     found_target = True
                 except: continue
@@ -175,7 +183,12 @@ def extract_price_array(raw, target_date=None):
             if isinstance(item, (int, float)):
                 result.append(float(item))
             elif isinstance(item, dict):
-                val = item.get("pv_estimate") or item.get("estimate") or item.get("value") or item.get("price") or item.get("total") or 0
+                val = 0
+                for key in ["pv_estimate", "estimate", "value", "price", "total"]:
+                    v = item.get(key)
+                    if v is not None:
+                        val = v
+                        break
                 try: result.append(float(val))
                 except: result.append(0.0)
         return result, len(result) > 0
@@ -496,6 +509,8 @@ async def get_solar_detailed():
                 for attr_name in ["DetailedForecast", "detailed_forecast", "wh_hours", "wh_period_forecast", "forecast", "forecast_today"]:
                     raw = attrs.get(attr_name)
                     if raw:
+                        if isinstance(raw, list) and len(raw) > 0:
+                            logger.info(f"Detailed Solar API: Found forecast attribute '{attr_name}' with {len(raw)} items. Keys: {list(raw[0].keys()) if isinstance(raw[0], dict) else 'non-dict'}")
                         forecast_array, success = extract_price_array(raw, target_date=now.date())
                         if success: break
         
