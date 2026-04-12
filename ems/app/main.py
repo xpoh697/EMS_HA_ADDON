@@ -81,8 +81,8 @@ async def sensor_poller():
             if now.hour != state_manager.solar_tracking["hour_start_ts"].hour:
                 prev_hour = state_manager.solar_tracking["hour_start_ts"]
                 # Save historical metrics via domain services
-                await save_hourly_solar_stats(prev_hour, state_manager.solar_tracking, state_manager.current_sensors, state_manager.price_arrays)
-                await save_hourly_house_stats(prev_hour, state_manager.house_tracking, state_manager.current_sensors)
+                save_hourly_solar_stats(prev_hour, state_manager.solar_tracking, state_manager.current_sensors, state_manager.price_arrays)
+                save_hourly_house_stats(prev_hour, state_manager.house_tracking, state_manager.current_sensors)
                 
                 # Reset tracking for new hour
                 state_manager.solar_tracking.update({
