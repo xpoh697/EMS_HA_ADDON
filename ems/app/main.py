@@ -355,12 +355,12 @@ async def sensor_poller():
             guardian.coordinate(handlers, current_sensors, can_use_energy)
 
             # 5. Calculate Daily Solar Yield (Skip if dedicated sensor is mapped)
-            if config.get("solar_energy_today") and current_sensors.get("solar_energy_today") is not None:
-                # Use value directly from HA
-                pass
+            mapped_today_sensor = config.get("solar_energy_today")
+            if mapped_today_sensor and current_sensors.get("solar_energy_today") is not None:
+                # Value is already set from HA in the mapping loop
+                if now.minute % 5 == 0 and now.second < 10:
+                    logger.info(f"Using MAPPED sensor for yield: {mapped_today_sensor} = {current_sensors['solar_energy_today']} kWh")
             else:
-                import datetime
-                now = datetime.datetime.now()
                 if now.hour == 0 and now.minute == 0:
                     solar_tracking["day_start_energy"] = current_sensors.get("solar_energy_total")
 
@@ -377,6 +377,9 @@ async def sensor_poller():
                             current_wh = (solar_tracking["integration_sum_watts"] / solar_tracking["sample_count"]) / 1000.0
                             today_sum += current_wh
                     except: pass
+                
+                if now.minute % 5 == 0 and now.second < 10:
+                    logger.info(f"CALCULATING yield from history/total: {today_sum} kWh")
                 current_sensors["solar_energy_today"] = round(today_sum, 2)
             
         except Exception as e:
