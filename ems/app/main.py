@@ -149,7 +149,7 @@ async def sensor_poller():
                     attrs = state_obj.get("attributes", {})
                     
                     if prefix == "solar":
-                        # v1.3.53: Fuzzy match for Solcast / Forecast-Solar (supports detailedForecast CamelCase)
+                        # v1.3.55: Fuzzy match for Solcast / Forecast-Solar (supports detailedForecast CamelCase)
                         search_keys = ["detailedForecast", "detailed_forecast", "wh_hours", "wh_period_forecast", "detailedhourly", "forecast", "forecasts"]
                         for attr in search_keys:
                             val = attrs.get(attr)
@@ -158,15 +158,15 @@ async def sensor_poller():
                                 val = fuzzy_get(attrs, [attr])
                                 
                             if val:
-                                array, found = extract_price_array(val, target_date=target_dt, is_solar=True, attr_name=attr)
-                                if found:
+                                array, matched_count = extract_price_array(val, target_date=target_dt, is_solar=True, attr_name=attr)
+                                if matched_count > 0:
                                     state_manager.price_arrays[f"solar_forecast_{day}"] = array
                                     if f"solar_{day}" not in state_manager.current_sensors.get("_picked_attrs", []):
                                         logger.info(f">>> POLLER: Identified Solar {day} attribute: {attr}")
                                         state_manager.current_sensors.setdefault("_picked_attrs", []).append(f"solar_{day}")
                                     break
                     else:
-                        # v1.3.53: Fuzzy match for prices (supports "Price today" spaced names)
+                        # v1.3.55: Fuzzy match for prices (supports "Price today" spaced names)
                         search_keys = [f"price_{day}", f"prices_{day}", f"raw_{day}", f"{day}_prices", day, f"price {day}"]
                         for attr in search_keys:
                             val = attrs.get(attr)
@@ -175,8 +175,8 @@ async def sensor_poller():
                                 val = fuzzy_get(attrs, [attr])
                                 
                             if val:
-                                array, found = extract_price_array(val, target_date=target_dt)
-                                if found:
+                                array, matched_count = extract_price_array(val, target_date=target_dt, attr_name=attr)
+                                if matched_count > 0:
                                     state_manager.price_arrays[f"{prefix}_prices_{day}"] = array
                                     if f"{prefix}_{day}" not in state_manager.current_sensors.get("_picked_attrs", []):
                                         logger.info(f">>> POLLER: Identified {prefix} {day} attribute: {attr}")
@@ -324,7 +324,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.53"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.55"
     })
     return response
 

@@ -42,23 +42,40 @@ def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
                     items.append((dt, val))
             except: continue
 
-    found = False
+    # Clean up targets
+    target_dt_obj = target_date if isinstance(target_date, datetime.date) else None
+    
+    found_count = 0
     for dt, val in items:
-        # Better date matching using .date() objects
-        if target_date and dt.date() != target_date:
-            continue
+        # Robust Date Matching: Compare .date() objects directly
+        match = False
+        if target_dt_obj and dt.date() == target_dt_obj:
+            match = True
             
-        h = dt.hour
-        if 0 <= h <= 23:
-            # MAGNITUDE FILTER: Relaxed to avoid filtering Wh-based sensors. 
-            # Only filter truly impossible hourly peaks (>100kWh or >100000Wh).
-            if is_solar and (val > 100.0 and val < 1000.0): # Skip mid-range trash if suspected kWh
-                continue
-            if val > 100000.0: # Impossible Wh
-                continue
-                
-            buckets[h].append(val)
-            found = True
+        if match:
+            h = dt.hour
+            if 0 <= h <= 23:
+                # MAGNITUDE FILTER: Relaxed (>100kWh or >100000Wh)
+                if is_solar and (val > 100.0 and val < 1000.0):
+                    continue
+                buckets[h].append(val)
+                found_count += 1
+
+    # FALLBACK LOGIC: If no items matched by date, but we have a 24-hour sequence 
+    # in an attribute clearly labeled "today" or "tomorrow", trust the sequence.
+    if found_count == 0 and len(items) >= 24:
+        # Check if attribute name matches our target day
+        day_tag = "today" if target_dt_obj == datetime.datetime.now().date() else "tomorrow"
+        if day_tag in attr_name.lower():
+            logger.info(f">>> PRICE_SERVICE: Fallback triggered for {attr_name}. Trusting sequence as {day_tag}.")
+            for i, (dt, val) in enumerate(items[:24]):
+                buckets[i].append(val)
+                found_count += 1
+
+    if found_count > 0:
+        logger.info(f">>> PRICE_SERVICE: Parsed {attr_name}. {found_count} matches for {target_date}.")
+    else:
+        logger.warning(f">>> PRICE_SERVICE: No matches for {attr_name} on {target_date}. Total suspect items: {len(items)}")
 
     result = [0.0] * 24
     # Some solar sensors provide cumulative Wh per hour (need summation)
