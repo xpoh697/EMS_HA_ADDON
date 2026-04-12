@@ -293,7 +293,7 @@
             <h2 class="text-3xl font-bold orbitron mb-8 flex items-center gap-4">
                 <button @click="view = 'dashboard'" class="text-gray-500 hover:text-white transition">←</button>
                 {{ t('sys_config') }}
-                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.26</span>
+                <span style="font-size: 10px; color: #475569; margin-left: auto;">BUILD 1.3.27</span>
             </h2>
             
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -869,71 +869,64 @@
                     houseModal.show = true;
                     houseModal.loading = true;
                     houseModal.error = null;
-                    
                     await nextTick();
                     
                     try {
                         const resp = await fetch('api/house_detailed?cb=' + Date.now());
-                        if (!resp.ok) throw new Error("Server returned error: " + resp.status);
+                        if (!resp.ok) throw new Error("Server error: " + resp.status);
                         const data = await resp.json();
                         
-                        if (!data.history || data.history.length === 0) {
-                            throw new Error("No historical data found.");
-                        }
+                        if (!data.history || data.history.length === 0) throw new Error("No historical data found.");
 
-                        setTimeout(() => {
-                            const canvas = document.getElementById('houseDetailedChart');
-                            if (!canvas) {
-                                houseModal.error = "Canvas initialization failed.";
-                                houseModal.loading = false;
-                                return;
-                            }
-                            const ctx = canvas.getContext('2d');
-                            if (houseModal.chart) houseModal.chart.destroy();
-                            
-                            houseModal.chart = new Chart(ctx, {
-                                type: 'bar',
-                                data: {
-                                    labels: data.history.map(h => `${h.hour}:00`),
-                                    datasets: [
-                                        {
-                                            label: t('today'),
-                                            data: data.history.map(h => h.actual),
-                                            backgroundColor: '#818cf8',
-                                            borderRadius: 4
-                                        },
-                                        {
-                                            label: t('average'),
-                                            data: data.history.map(h => h.average),
-                                            type: 'line',
-                                            borderColor: '#818cf8',
-                                            borderDash: [5, 5],
-                                            fill: false,
-                                            tension: 0.3
-                                        }
-                                    ]
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    plugins: {
-                                        legend: { 
-                                            display: true,
-                                            labels: { color: '#94a3b8', font: { size: 10, family: 'Orbitron' } }
-                                        }
+                        houseModal.loading = false;
+                        await nextTick();
+
+                        const canvas = document.getElementById('houseDetailedChart');
+                        if (!canvas) throw new Error("Canvas initialization failed.");
+                        
+                        const ctx = canvas.getContext('2d');
+                        if (houseModal.chart) houseModal.chart.destroy();
+                        
+                        houseModal.chart = new Chart(ctx, {
+                            type: 'bar',
+                            data: {
+                                labels: data.history.map(h => `${h.hour}:00`),
+                                datasets: [
+                                    {
+                                        label: t('today'),
+                                        data: data.history.map(h => h.actual),
+                                        backgroundColor: '#818cf8',
+                                        borderRadius: 4
                                     },
-                                    scales: {
-                                        x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { display: false } },
-                                        y: { 
-                                            ticks: { color: '#64748b', font: { size: 10 } },
-                                            grid: { color: 'rgba(255,255,255,0.05)' }
-                                        }
+                                    {
+                                        label: t('average'),
+                                        data: data.history.map(h => h.average),
+                                        type: 'line',
+                                        borderColor: '#818cf8',
+                                        borderDash: [5, 5],
+                                        fill: false,
+                                        tension: 0.3
+                                    }
+                                ]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { 
+                                        display: true,
+                                        labels: { color: '#94a3b8', font: { size: 10, family: 'Orbitron' } }
+                                    }
+                                },
+                                scales: {
+                                    x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { display: false } },
+                                    y: { 
+                                        ticks: { color: '#64748b', font: { size: 10 } },
+                                        grid: { color: 'rgba(255,255,255,0.05)' }
                                     }
                                 }
-                            });
-                            houseModal.loading = false;
-                        }, 100);
-                        
+                            }
+                        });
                     } catch (e) {
                         houseModal.error = e.message;
                         houseModal.loading = false;
@@ -944,74 +937,71 @@
                     solarModal.show = true;
                     solarModal.loading = true;
                     solarModal.error = null;
-                    
-                    // Allow DOM to update v-if
                     await nextTick();
                     
                     try {
                         const resp = await fetch('api/solar_detailed?cb=' + Date.now());
-                        if (!resp.ok) throw new Error("Server returned error: " + resp.status);
+                        if (!resp.ok) throw new Error("Server error: " + resp.status);
                         const data = await resp.json();
                         
-                        if (!data.history || data.history.length === 0) {
-                            throw new Error("No historical or forecast data found.");
-                        }
+                        if (!data.history || data.history.length === 0) throw new Error("No solar data found.");
 
-                        // Small additional delay to ensure canvas is ready for drawing
-                        setTimeout(() => {
-                            const canvas = document.getElementById('solarDetailedChart');
-                            if (!canvas) {
-                                solarModal.error = "Canvas initialization failed.";
-                                solarModal.loading = false;
-                                return;
-                            }
-                            const ctx = canvas.getContext('2d');
-                            if (solarModal.chart) solarModal.chart.destroy();
-                            
-                            solarModal.chart = new Chart(ctx, {
-                                type: 'bar',
-                                data: {
-                                    labels: data.history.map(h => `${h.hour}:00`),
-                                    datasets: [
-                                        {
-                                            label: t('actual'),
-                                            data: data.history.map(h => h.actual),
-                                            backgroundColor: '#fbbf24',
-                                            borderRadius: 4
-                                        },
-                                        {
-                                            label: t('forecast_raw'),
-                                            data: data.history.map(h => h.forecast),
-                                            type: 'line',
-                                            borderColor: '#60a5fa',
-                                            borderDash: [5, 5],
-                                            fill: false
-                                        },
-                                        {
-                                            label: t('forecast_corr'),
-                                            data: data.history.map(h => h.corrected),
-                                            type: 'line',
-                                            borderColor: '#3b82f6',
-                                            tension: 0.4,
-                                            fill: false
-                                        }
-                                    ]
-                                },
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    plugins: { legend: { display: false } },
-                                    scales: {
-                                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } },
-                                        x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+                        solarModal.loading = false;
+                        await nextTick();
+
+                        const canvas = document.getElementById('solarDetailedChart');
+                        if (!canvas) throw new Error("Canvas initialization failed.");
+                        
+                        const ctx = canvas.getContext('2d');
+                        if (solarModal.chart) solarModal.chart.destroy();
+                        
+                        solarModal.chart = new Chart(ctx, {
+                            type: 'bar',
+                            data: {
+                                labels: data.history.map(h => `${h.hour}:00`),
+                                datasets: [
+                                    {
+                                        label: t('actual'),
+                                        data: data.history.map(h => h.actual),
+                                        backgroundColor: '#fbbf24',
+                                        borderRadius: 4
+                                    },
+                                    {
+                                        label: t('forecast_raw'),
+                                        data: data.history.map(h => h.forecast),
+                                        type: 'line',
+                                        borderColor: '#60a5fa',
+                                        borderDash: [5, 5],
+                                        fill: false
+                                    },
+                                    {
+                                        label: t('forecast_corr'),
+                                        data: data.history.map(h => h.corrected),
+                                        type: 'line',
+                                        borderColor: '#3b82f6',
+                                        tension: 0.4,
+                                        fill: false
                                     }
+                                ]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: { 
+                                    legend: { 
+                                        display: true,
+                                        labels: { color: '#94a3b8', font: { size: 10, family: 'Orbitron' } }
+                                    }
+                                },
+                                scales: {
+                                    y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b' } },
+                                    x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10 } } }
                                 }
-                            });
-                            solarModal.loading = false;
-                        }, 150);
+                            }
+                        });
                     } catch (e) {
                         console.error("Failed to load solar details:", e);
-                        solarModal.error = "Failed to load data: " + e.message;
+                        solarModal.error = "Failed to load: " + e.message;
                         solarModal.loading = false;
                     }
                 };
