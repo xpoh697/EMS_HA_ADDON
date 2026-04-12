@@ -149,18 +149,39 @@ async def sensor_poller():
                     attrs = state_obj.get("attributes", {})
                     
                     if prefix == "solar":
-                        # Expand search keys for Solcast / Forecast-Solar (v1.3.49 fix)
-                        for attr in ["wh_hours", "wh_period_forecast", "detailed_forecast", "detailedhourly", "forecast", "forecasts"]:
-                            if attrs.get(attr):
-                                array, _ = extract_price_array(attrs[attr], target_date=target_dt, is_solar=True, attr_name=attr)
-                                state_manager.price_arrays[f"solar_forecast_{day}"] = array
-                                break
+                        # v1.3.53: Fuzzy match for Solcast / Forecast-Solar (supports detailedForecast CamelCase)
+                        search_keys = ["detailedForecast", "detailed_forecast", "wh_hours", "wh_period_forecast", "detailedhourly", "forecast", "forecasts"]
+                        for attr in search_keys:
+                            val = attrs.get(attr)
+                            if val is None:
+                                from app.utils.sensor_utils import fuzzy_get
+                                val = fuzzy_get(attrs, [attr])
+                                
+                            if val:
+                                array, found = extract_price_array(val, target_date=target_dt, is_solar=True, attr_name=attr)
+                                if found:
+                                    state_manager.price_arrays[f"solar_forecast_{day}"] = array
+                                    if f"solar_{day}" not in state_manager.current_sensors.get("_picked_attrs", []):
+                                        logger.info(f">>> POLLER: Identified Solar {day} attribute: {attr}")
+                                        state_manager.current_sensors.setdefault("_picked_attrs", []).append(f"solar_{day}")
+                                    break
                     else:
-                        for attr in [f"price_{day}", f"prices_{day}", f"raw_{day}", f"{day}_prices", day]:
-                            if attrs.get(attr):
-                                array, _ = extract_price_array(attrs[attr], target_date=target_dt)
-                                state_manager.price_arrays[f"{prefix}_prices_{day}"] = array
-                                break
+                        # v1.3.53: Fuzzy match for prices (supports "Price today" spaced names)
+                        search_keys = [f"price_{day}", f"prices_{day}", f"raw_{day}", f"{day}_prices", day, f"price {day}"]
+                        for attr in search_keys:
+                            val = attrs.get(attr)
+                            if val is None:
+                                from app.utils.sensor_utils import fuzzy_get
+                                val = fuzzy_get(attrs, [attr])
+                                
+                            if val:
+                                array, found = extract_price_array(val, target_date=target_dt)
+                                if found:
+                                    state_manager.price_arrays[f"{prefix}_prices_{day}"] = array
+                                    if f"{prefix}_{day}" not in state_manager.current_sensors.get("_picked_attrs", []):
+                                        logger.info(f">>> POLLER: Identified {prefix} {day} attribute: {attr}")
+                                        state_manager.current_sensors.setdefault("_picked_attrs", []).append(f"{prefix}_{day}")
+                                    break
 
             # 4. Run Strategy & Coordination
             state_manager.current_sensors["survival_soc"] = state_manager.occupancy.calculate_target_soc(state_manager.current_sensors, 10.0)
@@ -303,7 +324,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.50"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.53"
     })
     return response
 

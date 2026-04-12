@@ -44,15 +44,19 @@ def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
 
     found = False
     for dt, val in items:
-        # Date filtering
-        if target_str and dt.strftime("%Y-%m-%d") != target_str:
+        # Better date matching using .date() objects
+        if target_date and dt.date() != target_date:
             continue
             
         h = dt.hour
         if 0 <= h <= 23:
-            # MAGNITUDE FILTER: v1.3.47 fix to prevent 20kWh+ daily totals from contaminating hourly stats
-            if is_solar and 20.0 < val < 1000.0:
+            # MAGNITUDE FILTER: Relaxed to avoid filtering Wh-based sensors. 
+            # Only filter truly impossible hourly peaks (>100kWh or >100000Wh).
+            if is_solar and (val > 100.0 and val < 1000.0): # Skip mid-range trash if suspected kWh
                 continue
+            if val > 100000.0: # Impossible Wh
+                continue
+                
             buckets[h].append(val)
             found = True
 
