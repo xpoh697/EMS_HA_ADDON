@@ -445,16 +445,28 @@ async def sensor_poller():
                 save_tracking_states(force=True)
                 logger.info("Trackers reset and persisted for new hour.")
 
-            db = SessionLocal()
-            setting = db.query(SystemSetting).filter(SystemSetting.key == "global_sensors").first()
-            db.close()
+            db_glob = SessionLocal()
+
+
+            try:
+
+
+                setting = db_glob.query(SystemSetting).filter(SystemSetting.key == 'global_sensors').first()
+
+
+                config = setting.value if setting else None
+
+
+            finally:
+
+
+                db_glob.close()
 
             # Ensure we have currency if it's missing (e.g. failed at startup)
             if not current_sensors.get("currency") or current_sensors["currency"] == "EUR":
                 await update_ha_config()
             
-            if setting:
-                config = setting.value
+            if config:
                 # Update current hour
                 import datetime
                 current_sensors["current_hour"] = datetime.datetime.now().hour
@@ -822,7 +834,7 @@ async def add_headers(request: Request, call_next):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    response.headers["X-Version"] = "1.3.39"
+    response.headers["X-Version"] = "1.3.40"
     return response
 
 # UI Mounting
