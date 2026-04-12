@@ -1,24 +1,36 @@
+
 import sqlite3
-import os
+import json
 
-db_path = r"e:\systemair\EMS\ems\app\data\ems.db"
-if not os.path.exists(db_path):
-    print(f"Database not found at {db_path}")
-    exit()
+db_path = "e:/systemair/EMS/ems.db"
 
-conn = sqlite3.connect(db_path)
-cursor = conn.cursor()
+def check_db():
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        print("--- System Settings ---")
+        cursor.execute("SELECT key, value FROM system_settings")
+        for row in cursor.fetchall():
+            key, val = row
+            try:
+                # Try to pretty print JSON values
+                data = json.loads(val)
+                print(f"{key}: {json.dumps(data, indent=2)}")
+            except:
+                print(f"{key}: {val}")
+        
+        print("\n--- Current Tracker States (tracking_state) ---")
+        cursor.execute("SELECT value FROM system_settings WHERE key='tracking_state'")
+        row = cursor.fetchone()
+        if row:
+            print(json.dumps(json.loads(row[0]), indent=2))
+        else:
+            print("No tracking_state found.")
 
-print("--- SolarHourlyStat (Last 24 items) ---")
-cursor.execute("SELECT timestamp, hour, actual_kwh, forecast_kwh FROM SolarHourlyStat ORDER BY timestamp DESC LIMIT 24")
-rows = cursor.fetchall()
-for row in rows:
-    print(f"Time: {row[0]}, Hour: {row[1]}, Actual: {row[2]}, Forecast: {row[3]}")
+        conn.close()
+    except Exception as e:
+        print(f"Error checking DB: {e}")
 
-print("\n--- Current Settings (Global Sensors) ---")
-cursor.execute("SELECT category, key, value FROM settings WHERE category='global_sensors'")
-rows = cursor.fetchall()
-for row in rows:
-    print(f"{row[0]}.{row[1]}: {row[2]}")
-
-conn.close()
+if __name__ == "__main__":
+    check_db()

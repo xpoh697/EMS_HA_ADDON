@@ -460,9 +460,13 @@ async def sensor_poller():
                 current_sensors["current_hour"] = datetime.datetime.now().hour
 
                 # Load strategy limits from DB
-                limits_setting = db.query(SystemSetting).filter(SystemSetting.key == "strategy_limits").first()
-                if limits_setting:
-                    current_sensors.update(limits_setting.value)
+                db_loc = SessionLocal()
+                try:
+                    limits_setting = db_loc.query(SystemSetting).filter(SystemSetting.key == "strategy_limits").first()
+                    if limits_setting:
+                        current_sensors.update(limits_setting.value)
+                finally:
+                    db_loc.close()
                 
                 # Map keys to sensor names
                 mapping = {
@@ -818,7 +822,7 @@ async def add_headers(request: Request, call_next):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    response.headers["X-Version"] = "1.3.37"
+    response.headers["X-Version"] = "1.3.38"
     return response
 
 # UI Mounting
