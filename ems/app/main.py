@@ -334,6 +334,7 @@ async def sensor_poller():
                         
                         
                         
+                        
                         # Set starting energy if not set
                         if sensor_key == "solar_energy_total" and solar_tracking["hour_start_energy"] is None:
                             solar_tracking["hour_start_energy"] = current_sensors[sensor_key]
@@ -517,14 +518,19 @@ async def get_solar_detailed():
             else:
                 attrs = state_obj.get("attributes", {})
                 logger.info(f">>> SOLAR_DETAILED_API: Sensor Attributes Keys: {list(attrs.keys())}")
-                # Try common Solcast / Solar Forecast attribute names (case-insensitive search is done manually here)
-                for attr_name in ["DetailedForecast", "detailed_forecast", "wh_hours", "wh_period_forecast", "forecast", "forecast_today"]:
-                    raw = attrs.get(attr_name)
-                    if raw:
+                # CASE-INSENSITIVE search for forecast attributes
+                search_keys = ["detailedforecast", "detailedhourly", "detailed_forecast", "wh_hours", "wh_period_forecast", "forecast", "forecast_today"]
+                raw = None
+                for k, v in attrs.items():
+                    if k.lower() in search_keys:
+                        logger.info(f">>> SOLAR_DETAILED_API: Matches found for '{k}'")
+                        raw = v
                         if isinstance(raw, list) and len(raw) > 0:
-                            logger.info(f"Detailed Solar API: Found forecast attribute '{attr_name}' with {len(raw)} items. Keys: {list(raw[0].keys()) if isinstance(raw[0], dict) else 'non-dict'}")
+                            logger.info(f">>> SOLAR_DETAILED_API: Found {len(raw)} items. Keys of first item: {list(raw[0].keys()) if isinstance(raw[0], dict) else 'non-dict'}")
                         forecast_array, success = extract_price_array(raw, target_date=now.date())
-                        if success: break
+                        if success: 
+                            logger.info(f">>> SOLAR_DETAILED_API: Successfully parsed forecast from '{k}'")
+                            break
         else:
             logger.warning("Detailed Solar API: No 'solar_forecast_today' entity mapped in settings.")
         
