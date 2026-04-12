@@ -54,6 +54,7 @@ class SystemState:
         self.ha_client = HomeAssistantClient(base_url="http://supervisor/core/api", token=token)
         
         self.last_state_save_ts = datetime.datetime.min
+        self._history_recovered = False
 
     def _resolve_ha_token(self):
         token = os.environ.get("SUPERVISOR_TOKEN") or os.environ.get("HA_TOKEN", "REPLACE_ME")

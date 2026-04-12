@@ -136,8 +136,15 @@ async def sensor_poller():
                 elif state_key == "house_power":
                     state_manager.house_tracking["integration_sum_watts"] += val
                     state_manager.house_tracking["sample_count"] += 1
-                elif state_key == "solar_energy_total" and state_manager.solar_tracking["hour_start_energy"] is None:
-                    state_manager.solar_tracking["hour_start_energy"] = val
+                elif state_key == "solar_energy_total":
+                    if state_manager.solar_tracking["hour_start_energy"] is None:
+                        state_manager.solar_tracking["hour_start_energy"] = val
+                    
+                    # v1.3.61: Correct trigger for History Recovery (on Energy Sensor, only once)
+                    if not state_manager._history_recovered:
+                        state_manager._history_recovered = True
+                        db_hist = SessionLocal()
+                        asyncio.create_task(repopulate_history_from_ha(db_hist, state_manager.ha_client, entity_id, state_manager.price_arrays))
                 elif state_key == "house_energy_today" and state_manager.house_tracking["hour_start_energy"] is None:
                     state_manager.house_tracking["hour_start_energy"] = val
                 
@@ -164,11 +171,6 @@ async def sensor_poller():
                                     if f"solar_{day}" not in state_manager.current_sensors.get("_picked_attrs", []):
                                         logger.info(f">>> POLLER: Identified Solar {day} attribute: {attr}")
                                         state_manager.current_sensors.setdefault("_picked_attrs", []).append(f"solar_{day}")
-                                        
-                                        # Trigger History Recovery for Today if needed
-                                        if day == "today":
-                                            db_hist = SessionLocal()
-                                            asyncio.create_task(repopulate_history_from_ha(db_hist, state_manager.ha_client, state_obj["entity_id"], state_manager.price_arrays))
                                     break
                     else:
                         # v1.3.55: Fuzzy match for prices (supports "Price today" spaced names)
@@ -329,7 +331,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.60"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.61"
     })
     return response
 
