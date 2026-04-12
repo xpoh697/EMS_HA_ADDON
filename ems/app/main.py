@@ -333,6 +333,7 @@ async def sensor_poller():
                             solar_tracking["sample_count"] += 1
                         
                         
+                        
                         # Set starting energy if not set
                         if sensor_key == "solar_energy_total" and solar_tracking["hour_start_energy"] is None:
                             solar_tracking["hour_start_energy"] = current_sensors[sensor_key]
@@ -502,8 +503,12 @@ async def get_solar_detailed():
         # 2. Try to get Live Forecast array from HA for the future
         forecast_array = [0] * 24
         settings = await get_settings()
-        forecast_entity = settings.get("solar_forecast_today")
-        logger.info(f">>> SOLAR_DETAILED_API: Settings Entity: '{forecast_entity}'")
+        
+        # FIX: The actual mapping is stored INSIDE the 'global_sensors' JSON setting
+        global_sensors = settings.get("global_sensors", {})
+        forecast_entity = global_sensors.get("solar_forecast_today")
+        
+        logger.info(f">>> SOLAR_DETAILED_API: Using forecast entity: '{forecast_entity}' (extracted from global_sensors)")
         
         if forecast_entity:
             state_obj = await ha_client.get_state(forecast_entity)
