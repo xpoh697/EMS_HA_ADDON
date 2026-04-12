@@ -119,23 +119,67 @@ def get_sensor_value(state_obj: dict, attr_name: str = None):
     except (ValueError, TypeError):
         return 0
 
-def extract_price_array(raw):
-    """Extract hourly price array from various HA sensor attribute formats."""
+def extract_price_array(raw, target_date=None):
+    """
+    Extract hourly price/solar array from various HA sensor attribute formats.
+    Supports lists of floats, lists of dicts (with/without timestamps), and dicts of timestamps.
+    Aggregates 30-min intervals into hourly buckets if target_date is provided.
+    """
     if not raw:
         return []
+
+    # 1. Handle Dictionary of ISO timestamps (e.g., Solcast wh_hours)
+    if isinstance(raw, dict):
+        try:
+            sorted_keys = sorted(raw.keys())
+            return [float(raw[k]) for k in sorted_keys]
+        except:
+            return []
+
+    # 2. Handle List formats
     if isinstance(raw, list):
+        if not raw: return []
+        
+        # Check if first item is a dict with timestamps
+        first = raw[0]
+        if isinstance(first, dict) and any(k in first for k in ["period_start", "start", "time", "datetime"]):
+            # Timestamp aggregation mode
+            buckets = [0.0] * 24
+            target_str = target_date.strftime("%Y-%m-%d") if target_date else None
+            found_any = False
+            
+            for item in raw:
+                try:
+                    ts_str = item.get("period_start") or item.get("start") or item.get("time") or item.get("datetime")
+                    if not ts_str: continue
+                    
+                    # Robust ISO parsing
+                    clean_ts = ts_str.replace('Z', '+00:00').replace(' ', 'T')
+                    dt = datetime.datetime.fromisoformat(clean_ts)
+                    
+                    # Filter by date if requested
+                    if target_str and dt.strftime("%Y-%m-%d") != target_str:
+                        continue
+                    
+                    hour = dt.hour
+                    val = item.get("pv_estimate") or item.get("value") or item.get("price") or item.get("total") or 0
+                    buckets[hour] += float(val)
+                    found_any = True
+                except: continue
+                
+            if found_any: return buckets
+
+        # Minimalist list or list of dicts without timestamps
         result = []
         for item in raw:
             if isinstance(item, (int, float)):
                 result.append(float(item))
             elif isinstance(item, dict):
-                # Format: {start, end, value} or {hour, price}
-                val = item.get("value") or item.get("price") or item.get("total") or 0
-                try:
-                    result.append(float(val))
-                except (ValueError, TypeError):
-                    result.append(0)
+                val = item.get("pv_estimate") or item.get("value") or item.get("price") or item.get("total") or 0
+                try: result.append(float(val))
+                except: result.append(0.0)
         return result
+
     return []
 
 async def save_hourly_solar_stats(prev_hour_ts):
@@ -420,34 +464,49 @@ async def import_settings(data: dict):
 
 @app.get("/api/solar_detailed")
 async def get_solar_detailed():
-    """Returns historical generation vs forecast vs corrected forecast for the UI."""
+    """Returns historical generation vs live forecast array for a full 24h dashboard view."""
     from app.models.database import SolarHourlyStat
     db = SessionLocal()
     try:
-        # 1. Get History (Last 24h)
-        cutoff = datetime.datetime.now() - datetime.timedelta(hours=24)
-        history_entries = db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp > cutoff).order_by(SolarHourlyStat.timestamp).all()
+        now = datetime.datetime.now()
+        # 1. Get History for today
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        history_entries = db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp >= today_start).all()
+        history_map = {h.hour: h for h in history_entries}
         
-        # 2. Get Correction Factors
+        # 2. Try to get Live Forecast array from HA for the future
+        forecast_array = [0] * 24
+        settings = await get_settings()
+        forecast_entity = settings.get("solar_forecast_today")
+        if forecast_entity:
+            state_obj = await ha_client.get_state(forecast_entity)
+            if state_obj:
+                attrs = state_obj.get("attributes", {})
+                # Try common Solcast / Solar Forecast attribute names (case-insensitive search is done manually here)
+                for attr_name in ["DetailedForecast", "detailed_forecast", "wh_hours", "wh_period_forecast", "forecast", "forecast_today"]:
+                    raw = attrs.get(attr_name)
+                    if raw:
+                        forecast_array = extract_price_array(raw, target_date=now.date())
+                        if sum(forecast_array) > 0: break
+        
+        # 3. Build a full 24-hour dataset
         factors = get_solar_correction_factors()
-        
-        # 3. Pull Current Forecasts (Raw)
-        # We'll need a better way to get hourly forecasts if available, but for now 
-        # we'll use the price_arrays logic or similar if Solcast attributes exist.
-        # For simplicity in this iteration, we return what we have in current_sensors and history.
-        
-        result = {
-            "history": [
-                {
-                    "hour": h.hour,
-                    "actual": h.actual_kwh,
-                    "forecast": h.forecast_kwh,
-                    "corrected": h.forecast_kwh * factors.get(h.hour, 1.0)
-                } for h in history_entries
-            ],
-            "factors": factors
-        }
-        return result
+        combined = []
+        for h in range(24):
+            hist = history_map.get(h)
+            actual_val = hist.actual_kwh if hist else 0
+            
+            # Use history forecast if we have it (snapshot at hour start), else live forecast_array
+            base_forecast = hist.forecast_kwh if hist else (forecast_array[h] if h < len(forecast_array) else 0)
+            
+            combined.append({
+                "hour": h,
+                "actual": actual_val,
+                "forecast": base_forecast,
+                "corrected": base_forecast * factors.get(h, 1.0)
+            })
+            
+        return {"history": combined, "factors": factors}
     finally:
         db.close()
 
