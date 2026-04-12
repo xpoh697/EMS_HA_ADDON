@@ -19,6 +19,30 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="EMS Control API")
 init_db()
 
+def run_once_v1346_reset():
+    """Wipes contaminated solar history to reset correction factors (Run once)."""
+    db = SessionLocal()
+    try:
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "v1346_reset_done").first()
+        if not setting:
+            logger.info(">>> v1.3.46 STARTUP: Clearing poisoned solar history to reset correction factors...")
+            from app.models.database import SolarHourlyStat
+            db.query(SolarHourlyStat).delete()
+            
+            reset_flag = SystemSetting(key="v1346_reset_done", value={"done": True})
+            db.add(reset_flag)
+            db.commit()
+            logger.info(">>> v1.3.46 STARTUP: Solar history reset successful!")
+        else:
+            logger.info(">>> v1.3.46 STARTUP: History reset already done.")
+    except Exception as e:
+        logger.error(f"Failed to perform v1.3.46 reset: {e}")
+    finally:
+        db.close()
+
+run_once_v1346_reset()
+
+
 # Core Components
 inverter = InverterController(dry_run=True)
 occupancy = OccupancyEngine()
@@ -51,6 +75,449 @@ ha_client = HomeAssistantClient(base_url="http://supervisor/core/api", token=ha_
 
 # Dynamic Handlers
 handlers = []
+
+def load_handlers():
+    """Load load managers from database config."""
+    global handlers
+    db = SessionLocal()
+    setting = db.query(SystemSetting).filter(SystemSetting.key == "loads").first()
+    db.close()
+    
+    new_handlers = []
+    if setting:
+        load_configs = setting.value  # List of dicts
+        for cfg in load_configs:
+            if cfg["type"] == "boiler":
+                h = BoilerManager(name=cfg["name"], entity_id=cfg["entity_id"], priority=cfg["priority"])
+                h.target_temp = cfg.get("target_temp", 60)
+                new_handlers.append(h)
+            elif cfg["type"] == "cyclic":
+                h = CyclicLoadHandler(name=cfg["name"], entity_id=cfg["entity_id"], priority=cfg["priority"])
+                new_handlers.append(h)
+    
+    handlers = new_handlers
+    logger.info(f"Loaded {len(handlers)} handlers from database.")
+
+async def update_ha_config():
+    """Fetch system config from HA like currency."""
+    if ha_client.auth_failed:
+        logger.warning("Skipping HA config fetch: Auth failed.")
+        return
+    config = await ha_client.get_config()
+    if config:
+        current_sensors["currency"] = config.get("currency", "EUR")
+        logger.info(f"HA Currency: {current_sensors['currency']}")
+
+# State
+current_sensors = {
+    "battery_soc": 0, "solar_power": 0, "buy_price": 0, "sell_price": 0, "house_power": 0,
+    "survival_soc": 20, "price_tomorrow": 0, "currency": "EUR", "current_hour": 0,
+    "solar_forecast_today": 0, "solar_forecast_tomorrow": 0,
+    "solar_energy_total": 0, "solar_energy_today": 0, "house_energy_today": 0
+}
+
+# Sensor tracking state (Persisted)
+solar_tracking = {
+    "hour_start_ts": None,
+    "integration_sum_watts": 0,
+    "sample_count": 0,
+    "hour_start_energy": None,
+    "day_start_energy": None,
+    "last_hourly_stats": [] # 24h history for chart
+}
+
+house_tracking = {
+    "hour_start_ts": None,
+    "integration_sum_watts": 0,
+    "sample_count": 0,
+    "hour_start_energy": None
+}
+
+last_state_save_ts = datetime.datetime.min
+
+def save_tracking_states(force=False):
+    """Persists tracking objects to DB with 5-minute cooldown."""
+    global last_state_save_ts
+    now = datetime.datetime.now()
+    if not force and (now - last_state_save_ts).total_seconds() < 300: # 5 Minutes
+        return
+
+    db = SessionLocal()
+    try:
+        state = {
+            "solar": {
+                "hour_start_ts": solar_tracking["hour_start_ts"].isoformat() if solar_tracking["hour_start_ts"] else None,
+                "integration_sum_watts": solar_tracking["integration_sum_watts"],
+                "sample_count": solar_tracking["sample_count"],
+                "hour_start_energy": solar_tracking["hour_start_energy"]
+            },
+            "house": {
+                "hour_start_ts": house_tracking["hour_start_ts"].isoformat() if house_tracking["hour_start_ts"] else None,
+                "integration_sum_watts": house_tracking["integration_sum_watts"],
+                "sample_count": house_tracking["sample_count"],
+                "hour_start_energy": house_tracking["hour_start_energy"]
+            }
+        }
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "tracking_state").first()
+        if not setting:
+            setting = SystemSetting(key="tracking_state", value=state)
+            db.add(setting)
+        else:
+            setting.value = state
+        db.commit()
+        last_state_save_ts = now
+    except Exception as e:
+        logger.error(f"Failed to save tracking states: {e}")
+    finally:
+        db.close()
+
+def load_tracking_states():
+    """Loads tracking objects from DB."""
+    global solar_tracking, house_tracking
+    db = SessionLocal()
+    try:
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "tracking_state").first()
+        if setting and setting.value:
+            s_data = setting.value.get("solar", {})
+            h_data = setting.value.get("house", {})
+            
+            # Solar
+            if s_data.get("hour_start_ts"):
+                solar_tracking["hour_start_ts"] = datetime.datetime.fromisoformat(s_data["hour_start_ts"])
+                solar_tracking["integration_sum_watts"] = s_data.get("integration_sum_watts", 0)
+                solar_tracking["sample_count"] = s_data.get("sample_count", 0)
+                solar_tracking["hour_start_energy"] = s_data.get("hour_start_energy")
+            
+            # House
+            if h_data.get("hour_start_ts"):
+                house_tracking["hour_start_ts"] = datetime.datetime.fromisoformat(h_data["hour_start_ts"])
+                house_tracking["integration_sum_watts"] = h_data.get("integration_sum_watts", 0)
+                house_tracking["sample_count"] = h_data.get("sample_count", 0)
+                house_tracking["hour_start_energy"] = h_data.get("hour_start_energy")
+            
+            logger.info("Universal tracking states loaded from database.")
+    except Exception as e:
+        logger.error(f"Failed to load tracking states: {e}")
+    finally:
+        db.close()
+
+load_tracking_states()
+
+# Price arrays for the chart
+price_arrays = {
+    "buy_prices_tomorrow": [],
+    "sell_prices_tomorrow": [],
+    "solar_forecast_today": [],
+    "solar_forecast_tomorrow": []
+}
+
+def get_sensor_value(state_obj: dict, attr_name: str = None):
+    """Extract value from state or attribute."""
+    if not state_obj: return 0
+    try:
+        if attr_name and attr_name in state_obj.get("attributes", {}):
+            return float(state_obj["attributes"][attr_name])
+        return float(state_obj.get("state", 0))
+    except (ValueError, TypeError):
+        return 0
+
+
+
+
+
+def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
+    """
+    Extract hourly array from HA sensor attributes.
+    is_solar: If True, uses Sum for Wh energy, Average for Power/kW.
+    attr_name: Name of the attribute to decide aggregation strategy.
+    """
+    if not raw:
+        return [0.0]*24, False
+
+    buckets = [[] for _ in range(24)]
+    found = False
+    
+    # 1. Standardize input to a list of (datetime, value)
+    items = []
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            try:
+                # Handle ISO timestamps. Values like 'total' will fail here.
+                clean_ts = k.replace('Z', '+00:00').replace(' ', 'T')
+                dt = datetime.datetime.fromisoformat(clean_ts)
+                items.append((dt, float(v)))
+            except: continue
+    elif isinstance(raw, list):
+        for item in raw:
+            try:
+                if isinstance(item, dict):
+                    ts_str = item.get("period_start") or item.get("start") or item.get("time") or item.get("datetime")
+                    if not ts_str: continue
+                    clean_ts = ts_str.replace('Z', '+00:00').replace(' ', 'T')
+                    dt = datetime.datetime.fromisoformat(clean_ts)
+                    val = 0
+                    for key in ["pv_estimate", "estimate", "value", "price", "total", "amount"]:
+                        v = item.get(key)
+                        if v is not None:
+                            val = float(v)
+                            break
+                    items.append((dt, val))
+            except: continue
+
+    # 2. Filter and bucket
+    target_str = target_date.strftime("%Y-%m-%d") if target_date else None
+    for dt, val in items:
+        if target_str and dt.strftime("%Y-%m-%d") != target_str:
+            continue
+        hour = dt.hour
+        if 0 <= hour <= 23:
+            # MAGNITUDE FILTER: 
+            # If a single hourly value is > 20.0 (kWh) it is definitely the Daily Total.
+            # No residential inverter produces 20kWh within a single hour slot.
+            if is_solar and 20.0 < val < 1000.0:
+                logger.info(f"Skipping value {val} at hour {hour} - identified as potential daily total peak.")
+                continue 
+            buckets[hour].append(val)
+            found = True
+
+    # 3. Aggregate
+    result = [0.0]*24
+    should_sum = is_solar and ("wh_hours" in attr_name.lower() or "energy" in attr_name.lower())
+    
+    for h in range(24):
+        vals = buckets[h]
+        if not vals: continue
+        
+        if should_sum:
+            s = sum(vals)
+            # Detect Wh -> kWh conversion
+            result[h] = round(s / 1000.0 if s > 150.0 else s, 3)
+        else:
+            # Average power values (fixes the 30-min sawtooth)
+            result[h] = round(sum(vals) / len(vals), 3)
+
+    return result, found
+
+def load_handlers():
+    """Load load managers from database config."""
+    global handlers
+    db = SessionLocal()
+    setting = db.query(SystemSetting).filter(SystemSetting.key == "loads").first()
+    db.close()
+    
+    new_handlers = []
+    if setting:
+        load_configs = setting.value  # List of dicts
+        for cfg in load_configs:
+            if cfg["type"] == "boiler":
+                h = BoilerManager(name=cfg["name"], entity_id=cfg["entity_id"], priority=cfg["priority"])
+                h.target_temp = cfg.get("target_temp", 60)
+                new_handlers.append(h)
+            elif cfg["type"] == "cyclic":
+                h = CyclicLoadHandler(name=cfg["name"], entity_id=cfg["entity_id"], priority=cfg["priority"])
+                new_handlers.append(h)
+    
+    handlers = new_handlers
+    logger.info(f"Loaded {len(handlers)} handlers from database.")
+
+async def update_ha_config():
+    """Fetch system config from HA like currency."""
+    if ha_client.auth_failed:
+        logger.warning("Skipping HA config fetch: Auth failed.")
+        return
+    config = await ha_client.get_config()
+    if config:
+        current_sensors["currency"] = config.get("currency", "EUR")
+        logger.info(f"HA Currency: {current_sensors['currency']}")
+
+# State
+current_sensors = {
+    "battery_soc": 0, "solar_power": 0, "buy_price": 0, "sell_price": 0, "house_power": 0,
+    "survival_soc": 20, "price_tomorrow": 0, "currency": "EUR", "current_hour": 0,
+    "solar_forecast_today": 0, "solar_forecast_tomorrow": 0,
+    "solar_energy_total": 0, "solar_energy_today": 0, "house_energy_today": 0
+}
+
+# Sensor tracking state (Persisted)
+solar_tracking = {
+    "hour_start_ts": None,
+    "integration_sum_watts": 0,
+    "sample_count": 0,
+    "hour_start_energy": None,
+    "day_start_energy": None,
+    "last_hourly_stats": [] # 24h history for chart
+}
+
+house_tracking = {
+    "hour_start_ts": None,
+    "integration_sum_watts": 0,
+    "sample_count": 0,
+    "hour_start_energy": None
+}
+
+last_state_save_ts = datetime.datetime.min
+
+def save_tracking_states(force=False):
+    """Persists tracking objects to DB with 5-minute cooldown."""
+    global last_state_save_ts
+    now = datetime.datetime.now()
+    if not force and (now - last_state_save_ts).total_seconds() < 300: # 5 Minutes
+        return
+
+    db = SessionLocal()
+    try:
+        state = {
+            "solar": {
+                "hour_start_ts": solar_tracking["hour_start_ts"].isoformat() if solar_tracking["hour_start_ts"] else None,
+                "integration_sum_watts": solar_tracking["integration_sum_watts"],
+                "sample_count": solar_tracking["sample_count"],
+                "hour_start_energy": solar_tracking["hour_start_energy"]
+            },
+            "house": {
+                "hour_start_ts": house_tracking["hour_start_ts"].isoformat() if house_tracking["hour_start_ts"] else None,
+                "integration_sum_watts": house_tracking["integration_sum_watts"],
+                "sample_count": house_tracking["sample_count"],
+                "hour_start_energy": house_tracking["hour_start_energy"]
+            }
+        }
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "tracking_state").first()
+        if not setting:
+            setting = SystemSetting(key="tracking_state", value=state)
+            db.add(setting)
+        else:
+            setting.value = state
+        db.commit()
+        last_state_save_ts = now
+    except Exception as e:
+        logger.error(f"Failed to save tracking states: {e}")
+    finally:
+        db.close()
+
+def load_tracking_states():
+    """Loads tracking objects from DB."""
+    global solar_tracking, house_tracking
+    db = SessionLocal()
+    try:
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "tracking_state").first()
+        if setting and setting.value:
+            s_data = setting.value.get("solar", {})
+            h_data = setting.value.get("house", {})
+            
+            # Solar
+            if s_data.get("hour_start_ts"):
+                solar_tracking["hour_start_ts"] = datetime.datetime.fromisoformat(s_data["hour_start_ts"])
+                solar_tracking["integration_sum_watts"] = s_data.get("integration_sum_watts", 0)
+                solar_tracking["sample_count"] = s_data.get("sample_count", 0)
+                solar_tracking["hour_start_energy"] = s_data.get("hour_start_energy")
+            
+            # House
+            if h_data.get("hour_start_ts"):
+                house_tracking["hour_start_ts"] = datetime.datetime.fromisoformat(h_data["hour_start_ts"])
+                house_tracking["integration_sum_watts"] = h_data.get("integration_sum_watts", 0)
+                house_tracking["sample_count"] = h_data.get("sample_count", 0)
+                house_tracking["hour_start_energy"] = h_data.get("hour_start_energy")
+            
+            logger.info("Universal tracking states loaded from database.")
+    except Exception as e:
+        logger.error(f"Failed to load tracking states: {e}")
+    finally:
+        db.close()
+
+load_tracking_states()
+
+# Price arrays for the chart
+price_arrays = {
+    "buy_prices_tomorrow": [],
+    "sell_prices_tomorrow": [],
+    "solar_forecast_today": [],
+    "solar_forecast_tomorrow": []
+}
+
+def get_sensor_value(state_obj: dict, attr_name: str = None):
+    """Extract value from state or attribute."""
+    if not state_obj: return 0
+    try:
+        if attr_name and attr_name in state_obj.get("attributes", {}):
+            return float(state_obj["attributes"][attr_name])
+        return float(state_obj.get("state", 0))
+    except (ValueError, TypeError):
+        return 0
+
+
+
+
+def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
+    """
+    Extract hourly array from HA sensor attributes.
+    is_solar: If True, uses Sum for Wh energy, Average for Power/kW.
+    attr_name: Name of the attribute to decide aggregation strategy.
+    """
+    if not raw:
+        return [0.0]*24, False
+
+    buckets = [[] for _ in range(24)]
+    found = False
+    
+    # 1. Standardize input to a list of (datetime, value)
+    items = []
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            try:
+                # Handle ISO timestamps. Values like 'total' will fail here.
+                clean_ts = k.replace('Z', '+00:00').replace(' ', 'T')
+                dt = datetime.datetime.fromisoformat(clean_ts)
+                items.append((dt, float(v)))
+            except: continue
+    elif isinstance(raw, list):
+        for item in raw:
+            try:
+                if isinstance(item, dict):
+                    ts_str = item.get("period_start") or item.get("start") or item.get("time") or item.get("datetime")
+                    if not ts_str: continue
+                    clean_ts = ts_str.replace('Z', '+00:00').replace(' ', 'T')
+                    dt = datetime.datetime.fromisoformat(clean_ts)
+                    val = 0
+                    for key in ["pv_estimate", "estimate", "value", "price", "total", "amount"]:
+                        v = item.get(key)
+                        if v is not None:
+                            val = float(v)
+                            break
+                    items.append((dt, val))
+            except: continue
+
+    # 2. Filter and bucket
+    target_str = target_date.strftime("%Y-%m-%d") if target_date else None
+    for dt, val in items:
+        if target_str and dt.strftime("%Y-%m-%d") != target_str:
+            continue
+        hour = dt.hour
+        if 0 <= hour <= 23:
+            # MAGNITUDE FILTER: 
+            # If a single hourly value is > 20.0 (kWh) it might be the Daily Total (e.g. 37.xxx).
+            # If it's Wh, it should be > 1000. 
+            # Values between 20.0 and 150.0 are highly suspicious for hourly forecasts.
+            if is_solar and 20.0 < val < 150.0:
+                continue # Reject potential Daily Total peak
+            buckets[hour].append(val)
+            found = True
+
+    # 3. Aggregate
+    result = [0.0]*24
+    should_sum = is_solar and ("wh_hours" in attr_name.lower() or "energy" in attr_name.lower())
+    
+    for h in range(24):
+        vals = buckets[h]
+        if not vals: continue
+        
+        if should_sum:
+            s = sum(vals)
+            # Detect Wh -> kWh conversion
+            result[h] = round(s / 1000.0 if s > 150.0 else s, 3)
+        else:
+            # Average power values (fixes the 30-min sawtooth)
+            result[h] = round(sum(vals) / len(vals), 3)
+
+    return result, found
 
 def load_handlers():
     """Load load managers from database config."""
@@ -1081,7 +1548,7 @@ async def add_headers(request: Request, call_next):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    response.headers["X-Version"] = "1.3.45"
+    response.headers["X-Version"] = "1.3.46"
     return response
 
 # UI Mounting
