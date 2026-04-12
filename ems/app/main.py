@@ -144,7 +144,7 @@ async def sensor_poller():
                 # Extract complex attributes (Prices, Forecasts)
                 if ("price" in config_key or "solar_forecast" in config_key):
                     prefix = "buy" if config_key == "buy_price" else ("sell" if config_key == "sell_price" else "solar")
-                    day = "today" if "today" in config_key else "tomorrow"
+                    day = "tomorrow" if "tomorrow" in config_key else "today"
                     target_dt = now.date() if day == "today" else (now + datetime.timedelta(days=1)).date()
                     attrs = state_obj.get("attributes", {})
                     
@@ -324,7 +324,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.57"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.58"
     })
     return response
 
