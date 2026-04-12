@@ -87,7 +87,17 @@ async def update_ha_config():
 current_sensors = {
     "battery_soc": 0, "solar_power": 0, "buy_price": 0, "sell_price": 0, "house_power": 0,
     "survival_soc": 20, "price_tomorrow": 0, "currency": "EUR", "current_hour": 0,
-    "solar_forecast_today": 0, "solar_forecast_tomorrow": 0
+    "solar_forecast_today": 0, "solar_forecast_tomorrow": 0,
+    "solar_energy_total": 0
+}
+
+# Solar tracking state
+solar_tracking = {
+    "hour_start_ts": None,
+    "integration_sum_watts": 0,
+    "sample_count": 0,
+    "hour_start_energy": None,
+    "last_hourly_stats": [] # 24h history for chart
 }
 
 # Price arrays for the chart
@@ -127,10 +137,99 @@ def extract_price_array(raw):
         return result
     return []
 
+async def save_hourly_solar_stats(prev_hour_ts):
+    """Calculates and saves hourly solar metrics to the database."""
+    from app.models.database import SolarHourlyStat
+    db = SessionLocal()
+    try:
+        # 1. Calculate Actual Energy (kWh)
+        actual_kwh = 0
+        current_energy = current_sensors.get("solar_energy_total")
+        
+        if current_energy and solar_tracking["hour_start_energy"]:
+            # Use delta from energy sensor (Best accuracy)
+            actual_kwh = max(0, current_energy - solar_tracking["hour_start_energy"])
+        elif solar_tracking["sample_count"] > 0:
+            # Fallback: Integrate Watts
+            avg_watts = solar_tracking["integration_sum_watts"] / solar_tracking["sample_count"]
+            actual_kwh = avg_watts / 1000.0 # Wh -> kWh
+        
+        # 2. Get Forecast in effect at START of the hour
+        # We'll just use today's attribute if available or the current sensor value
+        forecast_kwh = current_sensors.get("solar_forecast_today", 0)
+        
+        # 3. Save to DB
+        stat = SolarHourlyStat(
+            timestamp=prev_hour_ts,
+            hour=prev_hour_ts.hour,
+            actual_kwh=float(actual_kwh),
+            forecast_kwh=float(forecast_kwh)
+        )
+        db.add(stat)
+        db.commit()
+        logger.info(f"Saved hourly solar stats for {prev_hour_ts.hour}:00. Actual: {actual_kwh:.2f}kWh, Forecast: {forecast_kwh:.2f}kWh")
+        
+        # 4. Prune old data (> 30 days)
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=30)
+        db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp < cutoff).delete()
+        db.commit()
+        
+    except Exception as e:
+        logger.error(f"Failed to save solar stats: {e}")
+    finally:
+        db.close()
+
+def get_solar_correction_factors():
+    """Calculates per-hour multipliers based on past 14 days of history."""
+    from app.models.database import SolarHourlyStat
+    db = SessionLocal()
+    try:
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=14)
+        history = db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp > cutoff).all()
+        
+        if not history:
+            return {h: 1.0 for h in range(24)}
+            
+        # Group by hour
+        stats = {h: {"actual": 0, "forecast": 0} for h in range(24)}
+        for entry in history:
+            stats[entry.hour]["actual"] += entry.actual_kwh
+            stats[entry.hour]["forecast"] += entry.forecast_kwh
+            
+        # Calculate multipliers
+        factors = {}
+        for h in range(24):
+            f = stats[h]["forecast"]
+            a = stats[h]["actual"]
+            if f > 0.05: # Ignore very small forecasts
+                multiplier = a / f
+                factors[h] = min(max(multiplier, 0.1), 3.0) # Cap at 0.1x to 3x
+            else:
+                factors[h] = 1.0
+        return factors
+    finally:
+        db.close()
+
 async def sensor_poller():
     """Background task to fetch sensors from HA."""
+    import datetime
+    
+    # Initialize tracking timestamp
+    if solar_tracking["hour_start_ts"] is None:
+        solar_tracking["hour_start_ts"] = datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
+
     while True:
         try:
+            now = datetime.datetime.now()
+            
+            # Hour transition check
+            if now.hour != solar_tracking["hour_start_ts"].hour:
+                await save_hourly_solar_stats(solar_tracking["hour_start_ts"])
+                solar_tracking["hour_start_ts"] = now.replace(minute=0, second=0, microsecond=0)
+                solar_tracking["integration_sum_watts"] = 0
+                solar_tracking["sample_count"] = 0
+                solar_tracking["hour_start_energy"] = current_sensors.get("solar_energy_total")
+
             db = SessionLocal()
             setting = db.query(SystemSetting).filter(SystemSetting.key == "global_sensors").first()
             db.close()
@@ -158,7 +257,8 @@ async def sensor_poller():
                     "sell_price": "sell_price",
                     "house_power": "house_power",
                     "solar_forecast_today": "solar_forecast_today",
-                    "solar_forecast_tomorrow": "solar_forecast_tomorrow"
+                    "solar_forecast_tomorrow": "solar_forecast_tomorrow",
+                    "solar_energy": "solar_energy_total"
                 }
                 
                 for cfg_key, sensor_key in mapping.items():
@@ -167,6 +267,15 @@ async def sensor_poller():
                         state_obj = await ha_client.get_state(entity_id)
                         attr_name = config.get(f"{cfg_key}_attr")
                         current_sensors[sensor_key] = get_sensor_value(state_obj, attr_name)
+                        
+                        # Tracking integration
+                        if sensor_key == "solar_power":
+                            solar_tracking["integration_sum_watts"] += current_sensors[sensor_key]
+                            solar_tracking["sample_count"] += 1
+                        
+                        # Set starting energy if not set
+                        if sensor_key == "solar_energy_total" and solar_tracking["hour_start_energy"] is None:
+                            solar_tracking["hour_start_energy"] = current_sensors[sensor_key]
                         
                         # Extract price arrays from attributes
                         if "price" in cfg_key and state_obj:
@@ -284,6 +393,39 @@ async def import_settings(data: dict):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+@app.get("/api/solar_detailed")
+async def get_solar_detailed():
+    """Returns historical generation vs forecast vs corrected forecast for the UI."""
+    from app.models.database import SolarHourlyStat
+    db = SessionLocal()
+    try:
+        # 1. Get History (Last 24h)
+        cutoff = datetime.datetime.now() - datetime.timedelta(hours=24)
+        history_entries = db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp > cutoff).order_by(SolarHourlyStat.timestamp).all()
+        
+        # 2. Get Correction Factors
+        factors = get_solar_correction_factors()
+        
+        # 3. Pull Current Forecasts (Raw)
+        # We'll need a better way to get hourly forecasts if available, but for now 
+        # we'll use the price_arrays logic or similar if Solcast attributes exist.
+        # For simplicity in this iteration, we return what we have in current_sensors and history.
+        
+        result = {
+            "history": [
+                {
+                    "hour": h.hour,
+                    "actual": h.actual_kwh,
+                    "forecast": h.forecast_kwh,
+                    "corrected": h.forecast_kwh * factors.get(h.hour, 1.0)
+                } for h in history_entries
+            ],
+            "factors": factors
+        }
+        return result
     finally:
         db.close()
 

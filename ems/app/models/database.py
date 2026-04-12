@@ -29,6 +29,14 @@ class Profile(Base):
     hour = Column(Integer)  # 0-23
     mean_value = Column(Float)
 
+class SolarHourlyStat(Base):
+    __tablename__ = "solar_hourly_stats"
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, index=True)
+    hour = Column(Integer)
+    actual_kwh = Column(Float)
+    forecast_kwh = Column(Float)
+
 class SystemSetting(Base):
     __tablename__ = "system_settings"
     key = Column(String, primary_key=True)
