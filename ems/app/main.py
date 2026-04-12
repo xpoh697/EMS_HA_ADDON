@@ -102,6 +102,10 @@ solar_tracking = {
     "last_hourly_stats": [] # 24h history for chart
 }
 
+house_tracking = {
+    "hour_start_ts": None,
+    "integration_sum_watts": 0,
+    "sample_count": 0,
     "hour_start_energy": None
 }
 
@@ -407,6 +411,8 @@ def get_solar_correction_factors():
     finally:
         db.close()
 
+async def sensor_poller():
+    """Background task to fetch sensors from HA and track stats."""
     while True:
         try:
             now = datetime.datetime.now()
@@ -812,7 +818,7 @@ async def add_headers(request: Request, call_next):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    response.headers["X-Version"] = "1.3.35"
+    response.headers["X-Version"] = "1.3.37"
     return response
 
 # UI Mounting
