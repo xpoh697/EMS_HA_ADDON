@@ -822,7 +822,7 @@ async def add_headers(request: Request, call_next):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    response.headers["X-Version"] = "1.3.38"
+    response.headers["X-Version"] = "1.3.39"
     return response
 
 # UI Mounting
