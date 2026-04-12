@@ -1,4 +1,10 @@
-from fastapi import FastAPI, Request, HTTPException
+
+import os
+
+filepath = "e:/systemair/EMS/ems/app/main.py"
+
+# Use triple single quotes for the outer string to avoid conflict with triple double quotes in the content
+content = '''from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 import logging
 import os
@@ -309,3 +315,8 @@ async def add_headers(request: Request, call_next):
 
 if os.path.exists("app/static"):
     app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
+'''
+
+with open(filepath, "w", encoding="utf-8", newline="\n") as f:
+    f.write(content)
+print("Modular Refactoring of main.py v1.3.50 complete!")
