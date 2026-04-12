@@ -145,6 +145,7 @@ def extract_price_array(raw, target_date=None):
         if isinstance(first, dict) and any(k in first for k in ["period_start", "start", "time", "datetime"]):
             # Timestamp aggregation mode
             buckets = [0.0] * 24
+            counts = [0] * 24
             target_str = target_date.strftime("%Y-%m-%d") if target_date else None
             found_target = False
             
@@ -163,7 +164,7 @@ def extract_price_array(raw, target_date=None):
                     
                     hour = dt.hour
                     
-                    # Correctly handle 0.0 values (Falsy in Python)
+                    # Correctly handle 0.0 values
                     val = 0
                     for key in ["pv_estimate", "estimate", "value", "price", "total"]:
                         v = item.get(key)
@@ -172,10 +173,19 @@ def extract_price_array(raw, target_date=None):
                             break
                     
                     buckets[hour] += float(val)
+                    counts[hour] += 1
                     found_target = True
                 except: continue
                 
-            if found_target: return buckets, True
+            if found_target:
+                # Return averaged values
+                result = []
+                for i in range(24):
+                    if counts[i] > 0:
+                        result.append(round(buckets[i] / counts[i], 3))
+                    else:
+                        result.append(buckets[i])
+                return result, True
 
         # Minimalist list or list of dicts without timestamps
         result = []
