@@ -20,11 +20,11 @@ class SystemState:
             "solar_energy_total": 0, "solar_energy_today": 0, "house_energy_today": 0
         }
 
-        # Pricing Buffers
+        # Pricing Buffers (initialized with zeros to prevent UI 'No Data' error)
         self.price_arrays = {
-            "buy_prices_today": [], "buy_prices_tomorrow": [],
-            "sell_prices_today": [], "sell_prices_tomorrow": [],
-            "solar_forecast_today": [], "solar_forecast_tomorrow": []
+            "buy_prices_today": [0.0] * 24, "buy_prices_tomorrow": [0.0] * 24,
+            "sell_prices_today": [0.0] * 24, "sell_prices_tomorrow": [0.0] * 24,
+            "solar_forecast_today": [0.0] * 24, "solar_forecast_tomorrow": [0.0] * 24
         }
 
         # Tracking (Hour Start State)

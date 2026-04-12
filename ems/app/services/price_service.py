@@ -22,6 +22,10 @@ def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
             
     # Support list format (common for Solcast, Pstryk)
     elif isinstance(raw, list):
+        # Legacy/Flat-list support (v1.3.48 logic)
+        if len(raw) >= 24 and all(isinstance(x, (int, float)) for x in raw[:24]):
+            return [float(x) for x in raw[:24]], True
+            
         for item in raw:
             try:
                 if isinstance(item, dict):
@@ -36,10 +40,6 @@ def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
                             val = float(v)
                             break
                     items.append((dt, val))
-                elif isinstance(item, (int, float)):
-                    # Simple list of values - assumed to be sequential starting at 0:00 (legacy)
-                    # We can't really date-filter these well without more context, but we handle them
-                    pass
             except: continue
 
     found = False
