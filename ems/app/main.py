@@ -332,7 +332,6 @@ async def sensor_poller():
                             solar_tracking["integration_sum_watts"] += current_sensors[sensor_key]
                             solar_tracking["sample_count"] += 1
                         
-                        
                         # Set starting energy if not set
                         if sensor_key == "solar_energy_total" and solar_tracking["hour_start_energy"] is None:
                             solar_tracking["hour_start_energy"] = current_sensors[sensor_key]
@@ -501,9 +500,13 @@ async def get_solar_detailed():
         forecast_array = [0] * 24
         settings = await get_settings()
         forecast_entity = settings.get("solar_forecast_today")
+        logger.info(f"Detailed Solar API: Using forecast entity: '{forecast_entity}'")
+        
         if forecast_entity:
             state_obj = await ha_client.get_state(forecast_entity)
-            if state_obj:
+            if not state_obj:
+                logger.warning(f"Detailed Solar API: Could not get state for {forecast_entity}")
+            else:
                 attrs = state_obj.get("attributes", {})
                 # Try common Solcast / Solar Forecast attribute names (case-insensitive search is done manually here)
                 for attr_name in ["DetailedForecast", "detailed_forecast", "wh_hours", "wh_period_forecast", "forecast", "forecast_today"]:
@@ -513,6 +516,8 @@ async def get_solar_detailed():
                             logger.info(f"Detailed Solar API: Found forecast attribute '{attr_name}' with {len(raw)} items. Keys: {list(raw[0].keys()) if isinstance(raw[0], dict) else 'non-dict'}")
                         forecast_array, success = extract_price_array(raw, target_date=now.date())
                         if success: break
+        else:
+            logger.warning("Detailed Solar API: No 'solar_forecast_today' entity mapped in settings.")
         
         # 3. Build a full 24-hour dataset
         factors = get_solar_correction_factors()
