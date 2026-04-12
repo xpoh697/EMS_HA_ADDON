@@ -113,10 +113,12 @@ async def sensor_poller():
             # 3. Poll Sensors from Home Assistant
             mapping = {
                 "soc": "battery_soc", "solar": "solar_power", 
-                "buy_price": "buy_price_today", "sell_price": "sell_price_today", 
+                "buy_price": "buy_price", "sell_price": "sell_price", 
                 "buy_price_tomorrow": "buy_price_tomorrow", "sell_price_tomorrow": "sell_price_tomorrow",
                 "house_power": "house_power", "house_energy_total": "house_energy_today",
-                "solar_energy_total": "solar_energy_today", "house_energy_today": "house_energy_today"
+                "solar_energy_total": "solar_energy_today",
+                "solar_forecast_today": "solar_forecast_today",
+                "solar_forecast_tomorrow": "solar_forecast_tomorrow"
             }
             
             for config_key, state_key in mapping.items():
@@ -332,7 +334,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.62"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.63"
     })
     return response
 
