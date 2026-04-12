@@ -92,7 +92,7 @@ current_sensors = {
     "solar_energy_total": 0, "solar_energy_today": 0, "house_energy_today": 0
 }
 
-# Solar tracking state
+# Sensor tracking state (Persisted)
 solar_tracking = {
     "hour_start_ts": None,
     "integration_sum_watts": 0,
@@ -109,12 +109,74 @@ house_tracking = {
     "hour_start_energy": None
 }
 
+def save_tracking_states():
+    """Persists tracking objects to DB."""
+    db = SessionLocal()
+    try:
+        state = {
+            "solar": {
+                "hour_start_ts": solar_tracking["hour_start_ts"].isoformat() if solar_tracking["hour_start_ts"] else None,
+                "integration_sum_watts": solar_tracking["integration_sum_watts"],
+                "sample_count": solar_tracking["sample_count"],
+                "hour_start_energy": solar_tracking["hour_start_energy"]
+            },
+            "house": {
+                "hour_start_ts": house_tracking["hour_start_ts"].isoformat() if house_tracking["hour_start_ts"] else None,
+                "integration_sum_watts": house_tracking["integration_sum_watts"],
+                "sample_count": house_tracking["sample_count"],
+                "hour_start_energy": house_tracking["hour_start_energy"]
+            }
+        }
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "tracking_state").first()
+        if not setting:
+            setting = SystemSetting(key="tracking_state", value=state)
+            db.add(setting)
+        else:
+            setting.value = state
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed to save tracking states: {e}")
+    finally:
+        db.close()
+
+def load_tracking_states():
+    """Loads tracking objects from DB."""
+    global solar_tracking, house_tracking
+    db = SessionLocal()
+    try:
+        setting = db.query(SystemSetting).filter(SystemSetting.key == "tracking_state").first()
+        if setting and setting.value:
+            s_data = setting.value.get("solar", {})
+            h_data = setting.value.get("house", {})
+            
+            # Solar
+            if s_data.get("hour_start_ts"):
+                solar_tracking["hour_start_ts"] = datetime.datetime.fromisoformat(s_data["hour_start_ts"])
+                solar_tracking["integration_sum_watts"] = s_data.get("integration_sum_watts", 0)
+                solar_tracking["sample_count"] = s_data.get("sample_count", 0)
+                solar_tracking["hour_start_energy"] = s_data.get("hour_start_energy")
+            
+            # House
+            if h_data.get("hour_start_ts"):
+                house_tracking["hour_start_ts"] = datetime.datetime.fromisoformat(h_data["hour_start_ts"])
+                house_tracking["integration_sum_watts"] = h_data.get("integration_sum_watts", 0)
+                house_tracking["sample_count"] = h_data.get("sample_count", 0)
+                house_tracking["hour_start_energy"] = h_data.get("hour_start_energy")
+            
+            logger.info("Universal tracking states loaded from database.")
+    except Exception as e:
+        logger.error(f"Failed to load tracking states: {e}")
+    finally:
+        db.close()
+
+load_tracking_states()
+
 # Price arrays for the chart
 price_arrays = {
-    "buy_prices_today": [],
-    "sell_prices_today": [],
     "buy_prices_tomorrow": [],
-    "sell_prices_tomorrow": []
+    "sell_prices_tomorrow": [],
+    "solar_forecast_today": [],
+    "solar_forecast_tomorrow": []
 }
 
 def get_sensor_value(state_obj: dict, attr_name: str = None):
@@ -221,17 +283,30 @@ async def save_hourly_solar_stats(prev_hour_ts):
         actual_kwh = 0
         current_energy = current_sensors.get("solar_energy_total")
         
-        if current_energy and solar_tracking["hour_start_energy"]:
-            # Use delta from energy sensor (Best accuracy)
-            actual_kwh = max(0, current_energy - solar_tracking["hour_start_energy"])
-        elif solar_tracking["sample_count"] > 0:
-            # Fallback: Integrate Watts
+        # Power integration fallback (Watt-hours -> kWh)
+        fallback_kwh = 0
+        if solar_tracking["sample_count"] > 0:
             avg_watts = solar_tracking["integration_sum_watts"] / solar_tracking["sample_count"]
-            actual_kwh = avg_watts / 1000.0 # Wh -> kWh
-        
-        # 2. Get Forecast in effect at START of the hour
-        # We'll just use today's attribute if available or the current sensor value
-        forecast_kwh = current_sensors.get("solar_forecast_today", 0)
+            fallback_kwh = max(0, avg_watts / 1000.0)
+            
+        if current_energy and solar_tracking["hour_start_energy"]:
+            # Handle possible sensor resets (today sensors)
+            if current_energy >= solar_tracking["hour_start_energy"]:
+                actual_kwh = current_energy - solar_tracking["hour_start_energy"]
+            else:
+                actual_kwh = current_energy # Reset happened
+            
+            # Robust verification: If Energy delta is 0 or too small, but we have Power integration, use Power
+            if actual_kwh < 0.01 and fallback_kwh > 0.1:
+                actual_kwh = fallback_kwh
+                logger.info("Using Power-integration fallback for Solar Fact data.")
+        else:
+            actual_kwh = fallback_kwh
+
+        # 2. Get Forecast from Extracted Array
+        h_idx = prev_hour_ts.hour
+        solar_forecast_array = price_arrays.get("solar_forecast_today", [])
+        forecast_kwh = solar_forecast_array[h_idx] if h_idx < len(solar_forecast_array) else 0
         
         # 3. Save to DB
         stat = SolarHourlyStat(
@@ -328,25 +403,37 @@ def get_solar_correction_factors():
     finally:
         db.close()
 
-async def sensor_poller():
-    """Background task to fetch sensors from HA."""
-    import datetime
-    
-    # Initialize tracking timestamp
-    if solar_tracking["hour_start_ts"] is None:
-        solar_tracking["hour_start_ts"] = datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
-
     while True:
         try:
             now = datetime.datetime.now()
             
-            # Hour transition check
+            # SINGLE Hour transition check (Consolidated)
+            if solar_tracking["hour_start_ts"] is None:
+                solar_tracking["hour_start_ts"] = now.replace(minute=0, second=0, microsecond=0)
+                house_tracking["hour_start_ts"] = now.replace(minute=0, second=0, microsecond=0)
+                save_tracking_states()
+
             if now.hour != solar_tracking["hour_start_ts"].hour:
-                await save_hourly_solar_stats(solar_tracking["hour_start_ts"])
+                prev_hour_ts = solar_tracking["hour_start_ts"]
+                logger.info(f"Hour transition detected: {prev_hour_ts.hour}:00 -> {now.hour}:00. Saving stats...")
+                
+                # 1. Save Stats (using currently accumulated trackers)
+                await save_hourly_solar_stats(prev_hour_ts)
+                await save_hourly_house_stats(prev_hour_ts)
+                
+                # 2. Reset Trackers for next hour
                 solar_tracking["hour_start_ts"] = now.replace(minute=0, second=0, microsecond=0)
                 solar_tracking["integration_sum_watts"] = 0
                 solar_tracking["sample_count"] = 0
                 solar_tracking["hour_start_energy"] = current_sensors.get("solar_energy_total")
+                
+                house_tracking["hour_start_ts"] = now.replace(minute=0, second=0, microsecond=0)
+                house_tracking["integration_sum_watts"] = 0
+                house_tracking["sample_count"] = 0
+                house_tracking["hour_start_energy"] = current_sensors.get("house_energy_today")
+                
+                save_tracking_states()
+                logger.info("Trackers reset and persisted for new hour.")
 
             db = SessionLocal()
             setting = db.query(SystemSetting).filter(SystemSetting.key == "global_sensors").first()
@@ -397,9 +484,6 @@ async def sensor_poller():
                             house_tracking["integration_sum_watts"] += current_sensors[sensor_key]
                             house_tracking["sample_count"] += 1
                         
-                        
-                        
-                        
                         # Set starting energy if not set
                         if sensor_key == "solar_energy_total" and solar_tracking["hour_start_energy"] is None:
                             solar_tracking["hour_start_energy"] = current_sensors[sensor_key]
@@ -407,22 +491,33 @@ async def sensor_poller():
                         if sensor_key == "house_energy_today" and house_tracking["hour_start_energy"] is None:
                             house_tracking["hour_start_energy"] = current_sensors[sensor_key]
                         
-                        # Extract price arrays from attributes
-                        if "price" in cfg_key and state_obj:
+                        # Extract price & solar arrays from attributes
+                        if ("price" in cfg_key or "solar_forecast" in cfg_key) and state_obj:
                             attrs = state_obj.get("attributes", {})
-                            logger.info(f"Sensor {entity_id} attributes: {list(attrs.keys())}")
-                            prefix = "buy" if cfg_key == "buy_price" else "sell"
-                            # Try common attribute names for hourly prices
-                            for attr_try in ["price_today", "today", "raw_today", "prices_today"]:
-                                today_raw = attrs.get(attr_try)
-                                if today_raw:
-                                    price_arrays[f"{prefix}_prices_today"], _ = extract_price_array(today_raw)
-                                    break
-                            for attr_try in ["price_tomorrow", "tomorrow", "raw_tomorrow", "prices_tomorrow"]:
-                                tomorrow_raw = attrs.get(attr_try)
-                                if tomorrow_raw:
-                                    price_arrays[f"{prefix}_prices_tomorrow"], _ = extract_price_array(tomorrow_raw)
-                                    break
+                            prefix = "buy" if cfg_key == "buy_price" else ("sell" if cfg_key == "sell_price" else "solar")
+                            
+                            # Handle Solar Forecast Extraction
+                            if prefix == "solar":
+                                # Identify if today or tomorrow
+                                day_key = "today" if "today" in cfg_key else "tomorrow"
+                                # Try common Solcast/Forecast-Solar attribute names
+                                for attr_try in ["wh_hours", "hourly", "forecast", "detailed_forecast", "wh_period_forecast"]:
+                                    raw_data = attrs.get(attr_try)
+                                    if raw_data:
+                                        price_arrays[f"solar_forecast_{day_key}"], _ = extract_price_array(raw_data)
+                                        break
+                            else:
+                                # Handle Price Extraction
+                                for attr_try in ["price_today", "today", "raw_today", "prices_today"]:
+                                    today_raw = attrs.get(attr_try)
+                                    if today_raw:
+                                        price_arrays[f"{prefix}_prices_today"], _ = extract_price_array(today_raw)
+                                        break
+                                for attr_try in ["price_tomorrow", "tomorrow", "raw_tomorrow", "prices_tomorrow"]:
+                                    tomorrow_raw = attrs.get(attr_try)
+                                    if tomorrow_raw:
+                                        price_arrays[f"{prefix}_prices_tomorrow"], _ = extract_price_array(tomorrow_raw)
+                                        break
 
             # 1. Update Survival SOC
             target_soc = occupancy.calculate_target_soc(current_sensors, 10.0) # Assume 10kWh if not set
@@ -438,26 +533,8 @@ async def sensor_poller():
             # 4. Coordinate Loads via Guardian
             guardian.coordinate(handlers, current_sensors, can_use_energy)
 
-            # 5. Hourly Tasks & Reset
-            if solar_tracking["hour_start_ts"] is None:
-                solar_tracking["hour_start_ts"] = now
-                house_tracking["hour_start_ts"] = now
-
-            if now.hour != solar_tracking["hour_start_ts"].hour:
-                try:
-                    # Trigger Hourly Tasks
-                    prev_hour_ts = now.replace(minute=0, second=0, microsecond=0) - datetime.timedelta(hours=1)
-                    await save_hourly_solar_stats(prev_hour_ts)
-                    await save_hourly_house_stats(prev_hour_ts)
-                    
-                    # Reset Tracking
-                    solar_tracking.update({"integration_sum_watts": 0, "sample_count": 0, "hour_start_energy": current_sensors.get("solar_energy_total")})
-                    house_tracking.update({"integration_sum_watts": 0, "sample_count": 0, "hour_start_energy": current_sensors.get("house_energy_today")})
-                    solar_tracking["hour_start_ts"] = now
-                    house_tracking["hour_start_ts"] = now
-                except Exception as e:
-                    logger.error(f"Error in hourly task trigger: {e}")
-
+            # 6. Frequent tracking state save (every poll)
+            save_tracking_states()
             # 5. Calculate Daily Solar Yield (Skip if dedicated sensor is mapped)
             mapped_today_sensor = config.get("solar_energy_today")
             if mapped_today_sensor and current_sensors.get("solar_energy_today") is not None:
@@ -731,6 +808,7 @@ async def add_headers(request: Request, call_next):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
+    response.headers["X-Version"] = "1.3.32"
     return response
 
 # UI Mounting
