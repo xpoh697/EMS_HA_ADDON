@@ -333,11 +333,19 @@ async def sensor_poller():
                         day = "today" if "today" in ck else "tomorrow"
                         attrs = st.get("attributes", {})
                         if prefix == "solar":
-                            for a in ["wh_hours", "hourly", "forecast", "detailed_forecast"]:
-                                if attrs.get(a): price_arrays[f"solar_forecast_{day}"], _ = extract_price_array(attrs[a], is_solar=True, attr_name=a); break
+                            # Target Date is critical for Solcast/Forecast-Solar multi-day attributes
+                            target_dt = now.date() if day == "today" else (now + datetime.timedelta(days=1)).date()
+                            for a in ["wh_hours", "wh_period_forecast", "detailed_forecast", "detailedhourly", "forecast", "forecasts"]:
+                                if attrs.get(a): 
+                                    price_arrays[f"solar_forecast_{day}"], _ = extract_price_array(attrs[a], target_date=target_dt, is_solar=True, attr_name=a)
+                                    break
                         else:
-                            for a in [f"price_{day}", day, f"raw_{day}"]:
-                                if attrs.get(a): price_arrays[f"{prefix}_prices_{day}"], _ = extract_price_array(attrs[a]); break
+                            # Target Date for Prices
+                            target_dt = now.date() if day == "today" else (now + datetime.timedelta(days=1)).date()
+                            for a in [f"price_{day}", f"prices_{day}", f"raw_{day}", f"{day}_prices", day]:
+                                if attrs.get(a): 
+                                    price_arrays[f"{prefix}_prices_{day}"], _ = extract_price_array(attrs[a], target_date=target_dt)
+                                    break
 
             current_sensors["survival_soc"] = occupancy.calculate_target_soc(current_sensors, 10.0)
             inv_state = inverter.update_state(current_sensors)
@@ -437,7 +445,7 @@ async def add_headers(request: Request, call_next):
     root = request.headers.get("X-Ingress-Path", "")
     if root: request.scope["root_path"] = root
     response = await call_next(request)
-    response.headers.update({"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.48"})
+    response.headers.update({"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.49"})
     return response
 
 if os.path.exists("app/static"):
