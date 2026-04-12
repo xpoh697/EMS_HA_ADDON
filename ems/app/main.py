@@ -332,6 +332,7 @@ async def sensor_poller():
                             solar_tracking["integration_sum_watts"] += current_sensors[sensor_key]
                             solar_tracking["sample_count"] += 1
                         
+                        
                         # Set starting energy if not set
                         if sensor_key == "solar_energy_total" and solar_tracking["hour_start_energy"] is None:
                             solar_tracking["hour_start_energy"] = current_sensors[sensor_key]
@@ -339,6 +340,7 @@ async def sensor_poller():
                         # Extract price arrays from attributes
                         if "price" in cfg_key and state_obj:
                             attrs = state_obj.get("attributes", {})
+                            logger.info(f"Sensor {entity_id} attributes: {list(attrs.keys())}")
                             prefix = "buy" if cfg_key == "buy_price" else "sell"
                             # Try common attribute names for hourly prices
                             for attr_try in ["price_today", "today", "raw_today", "prices_today"]:
@@ -486,6 +488,7 @@ async def import_settings(data: dict):
 @app.get("/api/solar_detailed")
 async def get_solar_detailed():
     """Returns historical generation vs live forecast array for a full 24h dashboard view."""
+    logger.info(">>> SOLAR_DETAILED_API: Request Start")
     from app.models.database import SolarHourlyStat
     db = SessionLocal()
     try:
@@ -494,20 +497,21 @@ async def get_solar_detailed():
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         history_entries = db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp >= today_start).all()
         history_map = {h.hour: h for h in history_entries}
-        logger.info(f"Detailed Solar API: Found {len(history_entries)} history entries for today.")
+        logger.info(f">>> SOLAR_DETAILED_API: History Found: {len(history_entries)} items")
         
         # 2. Try to get Live Forecast array from HA for the future
         forecast_array = [0] * 24
         settings = await get_settings()
         forecast_entity = settings.get("solar_forecast_today")
-        logger.info(f"Detailed Solar API: Using forecast entity: '{forecast_entity}'")
+        logger.info(f">>> SOLAR_DETAILED_API: Settings Entity: '{forecast_entity}'")
         
         if forecast_entity:
             state_obj = await ha_client.get_state(forecast_entity)
             if not state_obj:
-                logger.warning(f"Detailed Solar API: Could not get state for {forecast_entity}")
+                logger.warning(f">>> SOLAR_DETAILED_API: Entity '{forecast_entity}' not found in HA")
             else:
                 attrs = state_obj.get("attributes", {})
+                logger.info(f">>> SOLAR_DETAILED_API: Sensor Attributes Keys: {list(attrs.keys())}")
                 # Try common Solcast / Solar Forecast attribute names (case-insensitive search is done manually here)
                 for attr_name in ["DetailedForecast", "detailed_forecast", "wh_hours", "wh_period_forecast", "forecast", "forecast_today"]:
                     raw = attrs.get(attr_name)
