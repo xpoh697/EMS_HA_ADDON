@@ -86,7 +86,8 @@ async def update_ha_config():
 # State
 current_sensors = {
     "battery_soc": 0, "solar_power": 0, "buy_price": 0, "sell_price": 0, "house_power": 0,
-    "survival_soc": 20, "price_tomorrow": 0, "currency": "EUR"
+    "survival_soc": 20, "price_tomorrow": 0, "currency": "EUR", "current_hour": 0,
+    "solar_forecast_today": 0, "solar_forecast_tomorrow": 0
 }
 
 # Price arrays for the chart
@@ -140,13 +141,24 @@ async def sensor_poller():
             
             if setting:
                 config = setting.value
+                # Update current hour
+                import datetime
+                current_sensors["current_hour"] = datetime.datetime.now().hour
+
+                # Load strategy limits from DB
+                limits_setting = db.query(SystemSetting).filter(SystemSetting.key == "strategy_limits").first()
+                if limits_setting:
+                    current_sensors.update(limits_setting.value)
+                
                 # Map keys to sensor names
                 mapping = {
                     "soc": "battery_soc",
                     "solar": "solar_power",
                     "buy_price": "buy_price",
                     "sell_price": "sell_price",
-                    "house_power": "house_power"
+                    "house_power": "house_power",
+                    "solar_forecast_today": "solar_forecast_today",
+                    "solar_forecast_tomorrow": "solar_forecast_tomorrow"
                 }
                 
                 for cfg_key, sensor_key in mapping.items():

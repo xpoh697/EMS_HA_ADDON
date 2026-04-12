@@ -21,7 +21,9 @@ class OccupancyEngine:
         # Convert additional kWh to SOC %
         additional_soc = (additional_kwh / battery_capacity_kwh) * 100 if battery_capacity_kwh > 0 else 0
         
-        target_soc = self.base_reserve_soc + additional_soc
+        # Use user-defined base reserve or fallback to instance default
+        base_reserve = sensors.get("emergency_soc", self.base_reserve_soc)
+        target_soc = base_reserve + additional_soc
         
         # Cap between 10% and 95%
         return min(max(target_soc, 10.0), 95.0)

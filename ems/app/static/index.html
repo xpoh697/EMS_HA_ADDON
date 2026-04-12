@@ -283,6 +283,46 @@
                     </div>
                 </div>
 
+                <!-- Strategy Limits -->
+                <div style="background: rgba(255,255,255,0.05); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; padding: 24px;">
+                    <h3 class="orbitron text-blue-400 mb-6 tracking-widest text-sm uppercase">{{ t('strategy_limits') }}</h3>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div>
+                            <label style="display: block; font-size: 10px; text-transform: uppercase; color: #94a3b8; margin-bottom: 6px;">{{ t('buy_max') }}</label>
+                            <input type="number" step="0.001" v-model.number="settings.strategy_limits.buy_max_price" style="width:100%; background:#1e293b; border:1px solid #334155; border-radius:8px; padding:8px; color:white;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 10px; text-transform: uppercase; color: #94a3b8; margin-bottom: 6px;">{{ t('stop_min') }}</label>
+                            <input type="number" step="0.001" v-model.number="settings.strategy_limits.stop_sale_min_price" style="width:100%; background:#1e293b; border:1px solid #334155; border-radius:8px; padding:8px; color:white;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 10px; text-transform: uppercase; color: #94a3b8; margin-bottom: 6px;">{{ t('pv_min') }}</label>
+                            <input type="number" step="0.001" v-model.number="settings.strategy_limits.sale_pv_min_price" style="width:100%; background:#1e293b; border:1px solid #334155; border-radius:8px; padding:8px; color:white;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 10px; text-transform: uppercase; color: #94a3b8; margin-bottom: 6px;">{{ t('no_bat_min') }}</label>
+                            <input type="number" step="0.001" v-model.number="settings.strategy_limits.sale_pv_no_bat_min_price" style="width:100%; background:#1e293b; border:1px solid #334155; border-radius:8px; padding:8px; color:white;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 10px; text-transform: uppercase; color: #94a3b8; margin-bottom: 6px;">{{ t('no_bat_hour') }}</label>
+                            <input type="number" v-model.number="settings.strategy_limits.sale_pv_no_bat_max_hour" style="width:100%; background:#1e293b; border:1px solid #334155; border-radius:8px; padding:8px; color:white;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 10px; text-transform: uppercase; color: #94a3b8; margin-bottom: 6px;">{{ t('bat_min_p') }}</label>
+                            <input type="number" step="0.001" v-model.number="settings.strategy_limits.sale_pv_bat_min_price" style="width:100%; background:#1e293b; border:1px solid #334155; border-radius:8px; padding:8px; color:white;">
+                        </div>
+                        <div style="grid-column: span 1;">
+                            <label style="display: block; font-size: 10px; text-transform: uppercase; color: #94a3b8; margin-bottom: 6px;">{{ t('bat_min_s') }}</label>
+                            <input type="number" v-model.number="settings.strategy_limits.sale_pv_bat_min_soc" style="width:100%; background:#1e293b; border:1px solid #334155; border-radius:8px; padding:8px; color:white;">
+                        </div>
+                        <div style="grid-column: span 1;">
+                            <label style="display: block; font-size: 10px; text-transform: uppercase; color: #fbbf24; margin-bottom: 6px;">{{ t('bat_emergency') }}</label>
+                            <input type="number" v-model.number="settings.strategy_limits.emergency_soc" style="width:100%; background:#1e293b; border:1px solid #fbbf24; border-radius:8px; padding:8px; color:white;">
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Managed Loads -->
                 <div style="background: rgba(255,255,255,0.05); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; padding: 24px; overflow: visible;">
                     <div class="flex justify-between items-center mb-6">
@@ -364,9 +404,18 @@
                 adaptive_loads: 'Умные Нагрузки', guardian: 'Power Guardian', sys_config: 'Системные Настройки',
                 global_mapping: 'Маппинг Глобальных Сенсоров', managed_loads: 'Управляемые Нагрузки', add: 'Добавить', save: 'СОХРАНИТЬ',
                 soc: 'Заряд Батареи (%)', solar: 'Генерация Солнца (Вт)', buy_price: 'Цена Покупки', sell_price: 'Цена Продажи',
-                house_power: 'Потребление Дома (Вт)', guardian_hint: 'Хранитель следит за лимитом мощности и отключает нагрузки по приоритету.',
+                house_power: 'Потребление Дома (Вт)', 
+                solar_forecast_today: 'Прогноз Солнца Сегодня (кВт*ч)',
+                solar_forecast_tomorrow: 'Прогноз Солнца Завтра (кВт*ч)',
+                guardian_hint: 'Хранитель следит за лимитом мощности и отключает нагрузки по приоритету.',
                 price_chart: 'Цены за 24 часа', no_price_data: 'Нет данных о ценах. Привяжите сенсоры цен в настройках.',
-                export: 'ЭКСПОРТ', import: 'ИМПОРТ', token_hint: 'Используйте, если автоматическая авторизация через Supervisor не работает.'
+                export: 'ЭКСПОРТ', import: 'ИМПОРТ', token_hint: 'Используйте, если автоматическая авторизация через Supervisor не работает.',
+                strategy_limits: 'Лимиты Стратегии',
+                buy_max: 'Макс. цена покупки', stop_min: 'Мин. цена для Stop Sale',
+                pv_min: 'Мин. цена для Sale PV', no_bat_min: 'Sale PV No Bat: Мин. цена',
+                no_bat_hour: 'No Bat: До часа (0-23)', bat_min_p: 'Sale PV Bat: Мин. цена',
+                bat_min_s: 'Sale PV Bat: Мин. SOC (%)',
+                bat_emergency: 'Мин. уровень батареи (Emergency)'
             },
             EN: {
                 config: 'CONFIG', online: 'SYSTEM ONLINE', inv_mode: 'Inverter Mode', priority: 'Priority',
@@ -374,9 +423,18 @@
                 adaptive_loads: 'Adaptive Loads', guardian: 'Power Guardian', sys_config: 'System Configuration',
                 global_mapping: 'Global Sensors Mapping', managed_loads: 'Managed Loads', add: 'Add', save: 'SAVE CONFIGURATION',
                 soc: 'Battery State of Charge (%)', solar: 'Solar Power Production (W)', buy_price: 'Buy Price', sell_price: 'Sell Price',
-                house_power: 'Whole-house Power Usage (W)', guardian_hint: 'Guardian monitors real-time house power and enforces priorities.',
+                house_power: 'Whole-house Power Usage (W)',
+                solar_forecast_today: 'Solar Forecast Today (kWh)',
+                solar_forecast_tomorrow: 'Solar Forecast Tomorrow (kWh)',
+                guardian_hint: 'Guardian monitors real-time house power and enforces priorities.',
                 price_chart: '24h Price Chart', no_price_data: 'No price data. Assign price sensors in settings.',
-                export: 'EXPORT', import: 'IMPORT', token_hint: 'Use this only if Supervisor auto-auth fails.'
+                export: 'EXPORT', import: 'IMPORT', token_hint: 'Use this only if Supervisor auto-auth fails.',
+                strategy_limits: 'Strategy Limits',
+                buy_max: 'Max Buy Price', stop_min: 'Min Stop Sale Price',
+                pv_min: 'Min Sale PV Price', no_bat_min: 'No Bat: Min Price',
+                no_bat_hour: 'No Bat: Max Hour (0-23)', bat_min_p: 'PV Bat: Min Price',
+                bat_min_s: 'PV Bat: Min SOC (%)',
+                bat_emergency: 'Emergency SOC Floor (%)'
             },
             PL: {
                 config: 'KONFIG', online: 'SYSTEM ONLINE', inv_mode: 'Tryb Inwertera', priority: 'Priorytet',
@@ -384,8 +442,17 @@
                 adaptive_loads: 'Inteligentne Obciążenia', guardian: 'Strażnik Mocy', sys_config: 'Konfiguracja Systemu',
                 global_mapping: 'Mapowanie Czujników Globalnych', managed_loads: 'Zarządzane Obciążenia', add: 'Dodaj', save: 'ZAPISZ KONFIGURACJĘ',
                 soc: 'Poziom Naładowania Baterii (%)', solar: 'Produkcja Słońca (W)', buy_price: 'Cena Zakupu', sell_price: 'Cena Sprzedaży',
-                house_power: 'Zużycie Energii w Domu (W)', guardian_hint: 'Strażnik monitoruje moc domu w czasie rzeczywistym i egzekwuje priorytety.',
-                price_chart: 'Ceny 24h', no_price_data: 'Brak danych cenowych. Przypisz czujniki cen w ustawieniach.'
+                house_power: 'Zużycie Energii w Domu (W)',
+                solar_forecast_today: 'Prognoza Słońca Dzisiaj (kWh)',
+                solar_forecast_tomorrow: 'Prognoza Słońca Jutro (kWh)',
+                guardian_hint: 'Strażnik monitoruje moc domu w czasie rzeczywistym i egzekwuje priorytety.',
+                price_chart: 'Ceny 24h', no_price_data: 'Brak danych cenowych. Przypisz czujniki cen w ustawieniach.',
+                strategy_limits: 'Limity Strategii',
+                buy_max: 'Maks. cena kupna', stop_min: 'Min. cena Stop Sale',
+                pv_min: 'Min. cena Sale PV', no_bat_min: 'No Bat: Min. cena',
+                no_bat_hour: 'No Bat: Godz. (0-23)', bat_min_p: 'PV Bat: Min. cena',
+                bat_min_s: 'PV Bat: Min. SOC (%)',
+                bat_emergency: 'Minimalny SOC (Awaryjny)'
             }
         };
 
@@ -396,17 +463,32 @@
                 const dashboard = ref({ sensors: {}, loads: [], prices: {} });
                 const entities = ref([]);
                 const settings = ref({
-                    global_sensors: { soc: '', solar: '', buy_price: '', sell_price: '', house_power: '' },
+                    global_sensors: { 
+                        soc: '', solar: '', buy_price: '', sell_price: '', house_power: '',
+                        solar_forecast_today: '', solar_forecast_tomorrow: ''
+                    },
+                    strategy_limits: {
+                        buy_max_price: 0.05,
+                        stop_sale_min_price: 0.001,
+                        sale_pv_min_price: 0.01,
+                        sale_pv_no_bat_min_price: 0.1,
+                        sale_pv_no_bat_max_hour: 10,
+                        sale_pv_bat_min_price: 0.5,
+                        sale_pv_bat_min_soc: 50,
+                        emergency_soc: 20
+                    },
                     loads: []
                 });
 
                 const searchQueries = reactive({
-                    soc: '', solar: '', buy_price: '', sell_price: '', house_power: ''
+                    soc: '', solar: '', buy_price: '', sell_price: '', house_power: '',
+                    solar_forecast_today: '', solar_forecast_tomorrow: ''
                 });
                 const activeSearch = ref(null);
 
                 const sensorLabels = {
-                    soc: 'soc', solar: 'solar', buy_price: 'buy_price', sell_price: 'sell_price', house_power: 'house_power'
+                    soc: 'soc', solar: 'solar', buy_price: 'buy_price', sell_price: 'sell_price', house_power: 'house_power',
+                    solar_forecast_today: 'solar_forecast_today', solar_forecast_tomorrow: 'solar_forecast_tomorrow'
                 };
 
                 const t = (key) => translations[lang.value][key] || key;
@@ -451,6 +533,7 @@
                     const res = await fetch('api/settings');
                     const data = await res.json();
                     if (data.global_sensors) settings.value.global_sensors = data.global_sensors;
+                    if (data.strategy_limits) settings.value.strategy_limits = data.strategy_limits;
                     if (data.loads) settings.value.loads = data.loads;
                     if (data.lang) lang.value = data.lang;
 
