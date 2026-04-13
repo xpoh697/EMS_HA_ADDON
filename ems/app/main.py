@@ -273,6 +273,11 @@ async def get_settings():
 
 @app.post("/api/settings")
 async def save_settings(data: dict):
+    # v1.3.72: Diagnostic logging to find why mapping is empty
+    debug_data = {k: ("***" if "token" in k or "pass" in k else v) for k, v in data.items()}
+    logger.info(f">>> DEBUG: save_settings received keys: {list(data.keys())}")
+    logger.info(f">>> DEBUG: save_settings data: {debug_data}")
+    
     db = SessionLocal()
     try:
         # 1.3.70: Identify sensor mapping keys
@@ -428,7 +433,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.71"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.72"
     })
     return response
 
