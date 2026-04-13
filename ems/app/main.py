@@ -293,7 +293,10 @@ async def save_settings(data: dict):
             
         remaining_data = {}
         for k, v in data.items():
-            if k in sensor_keys or "_entity" in k or k.endswith("_sensor"):
+            if k == "mapping":
+                # v1.3.71: Merge UI-provided mapping object
+                if isinstance(v, dict): mapping.update(v)
+            elif k in sensor_keys or "_entity" in k or k.endswith("_sensor"):
                 mapping[k] = v
             else:
                 remaining_data[k] = v
@@ -425,7 +428,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.70"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.71"
     })
     return response
 
