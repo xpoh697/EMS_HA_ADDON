@@ -100,15 +100,28 @@ async def sensor_poller():
                 })
                 state_manager.save_tracking_states(force=True)
 
-            # 2. Fetch Configuration
+            # 2. Fetch Configuration (v1.3.76: Universal merge)
             db = SessionLocal()
-            glob_sensors = db.query(SystemSetting).filter(SystemSetting.key == 'global_sensors').first()
-            strategy_lims = db.query(SystemSetting).filter(SystemSetting.key == "strategy_limits").first()
+            settings_rows = db.query(SystemSetting).all()
             db.close()
             
-            config = glob_sensors.value if glob_sensors else {}
-            if strategy_lims:
-                state_manager.current_sensors.update(strategy_lims.value)
+            settings_map = {s.key: s.value for s in settings_rows}
+            config = {}
+            
+            # Merge all potential mapping sources
+            for source in ["mapping", "global_sensors"]:
+                m_data = settings_map.get(source, {})
+                if isinstance(m_data, str):
+                    import json
+                    try: m_data = json.loads(m_data)
+                    except: m_data = {}
+                if isinstance(m_data, dict):
+                    config.update(m_data)
+            
+            # Add strategy limits to state
+            strategy_lims = settings_map.get("strategy_limits", {})
+            if isinstance(strategy_lims, dict):
+                state_manager.current_sensors.update(strategy_lims)
             state_manager.current_sensors["current_hour"] = now.hour
 
             # 3. Poll Sensors from Home Assistant
@@ -450,7 +463,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.75"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.76"
     })
     return response
 
