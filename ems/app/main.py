@@ -251,6 +251,22 @@ async def get_ha_entities():
     states = await state_manager.ha_client.get_all_states()
     return [{"id": s["entity_id"], "name": s.get("attributes", {}).get("friendly_name", s["entity_id"])} for s in states]
 
+@app.get("/api/debug_mapping")
+async def debug_mapping():
+    db = SessionLocal()
+    try:
+        mapping_row = db.query(SystemSetting).filter(SystemSetting.key == "mapping").first()
+        if mapping_row:
+            return {
+                "key": "mapping",
+                "raw_value": str(mapping_row.value),
+                "type": str(type(mapping_row.value)),
+                "parsed": mapping_row.value
+            }
+        return {"error": "Mapping row not found"}
+    finally:
+        db.close()
+
 @app.get("/api/settings")
 async def get_settings():
     db = SessionLocal()
@@ -434,7 +450,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.74"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.75"
     })
     return response
 
