@@ -254,21 +254,67 @@ async def get_ha_entities():
 @app.get("/api/settings")
 async def get_settings():
     db = SessionLocal()
-    settings = {s.key: s.value for s in db.query(SystemSetting).all()}
+    rows = {s.key: s.value for s in db.query(SystemSetting).all()}
     db.close()
-    return settings
+    
+    # 1.3.70: Flatten mapping object for the frontend
+    mapping = rows.get("mapping", {})
+    if isinstance(mapping, str):
+        import json
+        try: mapping = json.loads(mapping)
+        except: mapping = {}
+    
+    # Merge mapping into top-level settings
+    if isinstance(mapping, dict):
+        for k, v in mapping.items():
+            if k not in rows:
+                rows[k] = v
+    return rows
 
 @app.post("/api/settings")
 async def save_settings(data: dict):
     db = SessionLocal()
-    for k, v in data.items():
-        setting = db.query(SystemSetting).filter(SystemSetting.key == k).first()
-        if not setting: db.add(SystemSetting(key=k, value=v))
-        else: setting.value = v
-    db.commit()
-    db.close()
-    load_handlers()
-    return {"status": "ok"}
+    try:
+        # 1.3.70: Identify sensor mapping keys
+        sensor_keys = [
+            "buy_price", "sell_price", "solar_power", "house_power", 
+            "solar_energy_total", "house_energy_total", "solar_energy_today", "house_energy_today",
+            "battery_soc", "battery_power", "inverter_status"
+        ]
+        
+        # Get existing mapping or create new
+        mapping_row = db.query(SystemSetting).filter(SystemSetting.key == "mapping").first()
+        import json
+        if mapping_row:
+            try: mapping = mapping_row.value if isinstance(mapping_row.value, dict) else json.loads(mapping_row.value)
+            except: mapping = {}
+        else:
+            mapping = {}
+            
+        remaining_data = {}
+        for k, v in data.items():
+            if k in sensor_keys or "_entity" in k or k.endswith("_sensor"):
+                mapping[k] = v
+            else:
+                remaining_data[k] = v
+        
+        # Save unified mapping
+        if not mapping_row:
+            db.add(SystemSetting(key="mapping", value=mapping))
+        else:
+            mapping_row.value = mapping
+            
+        # Save other settings individually
+        for k, v in remaining_data.items():
+            setting = db.query(SystemSetting).filter(SystemSetting.key == k).first()
+            if not setting: db.add(SystemSetting(key=k, value=v))
+            else: setting.value = v
+            
+        db.commit()
+        load_handlers()
+        return {"status": "ok"}
+    finally:
+        db.close()
 
 @app.get("/api/solar_detailed")
 async def get_solar_detailed(day: str = "today"):
@@ -379,7 +425,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.69"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.70"
     })
     return response
 
