@@ -271,15 +271,23 @@ async def save_settings(data: dict):
     return {"status": "ok"}
 
 @app.get("/api/solar_detailed")
-async def get_solar_detailed():
+async def get_solar_detailed(day: str = "today"):
     db = SessionLocal()
     try:
         now = datetime.datetime.now()
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        history = {h.hour: h for h in db.query(SolarHourlyStat).filter(SolarHourlyStat.timestamp >= today_start).all()}
+        target_date = now.date() if day == "today" else (now + datetime.timedelta(days=1)).date()
+        target_start = datetime.datetime.combine(target_date, datetime.time.min)
+        target_end = datetime.datetime.combine(target_date, datetime.time.max)
+        
+        history = {h.hour: h for h in db.query(SolarHourlyStat).filter(
+            SolarHourlyStat.timestamp >= target_start,
+            SolarHourlyStat.timestamp <= target_end
+        ).all()}
+        
         factors = get_solar_correction_factors()
         combined = []
-        forecast_array = state_manager.price_arrays.get("solar_forecast_today", [0]*24)
+        forecast_array = state_manager.price_arrays.get(f"solar_forecast_{day}", [0]*24)
+        
         for h in range(24):
             hist = history.get(h)
             actual = hist.actual_kwh if hist else 0
@@ -295,19 +303,25 @@ async def get_solar_detailed():
         db.close()
 
 @app.get("/api/house_detailed")
-async def get_house_detailed():
+async def get_house_detailed(day: str = "today"):
     db = SessionLocal()
     try:
         now = datetime.datetime.now()
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        history = {h.hour: h for h in db.query(HouseHourlyStat).filter(HouseHourlyStat.timestamp >= today_start).all()}
+        target_date = now.date() if day == "today" else (now + datetime.timedelta(days=1)).date()
+        target_start = datetime.datetime.combine(target_date, datetime.time.min)
+        target_end = datetime.datetime.combine(target_date, datetime.time.max)
+        
+        history = {h.hour: h for h in db.query(HouseHourlyStat).filter(
+            HouseHourlyStat.timestamp >= target_start,
+            HouseHourlyStat.timestamp <= target_end
+        ).all()}
         
         # Archival Average for the same weekday
         history_cutoff = now - datetime.timedelta(days=28)
         archive_stats = db.query(HouseHourlyStat).filter(
             HouseHourlyStat.timestamp >= history_cutoff,
-            HouseHourlyStat.timestamp < today_start,
-            text(f"strftime('%w', timestamp) = '{now.strftime('%w')}'")
+            # We use current weekday for comparison
+            text(f"strftime('%w', timestamp) = '{target_date.strftime('%w')}'")
         ).all()
         
         arch_map, counts = {}, {}
@@ -365,7 +379,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.68"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.69"
     })
     return response
 
