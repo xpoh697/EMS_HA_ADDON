@@ -124,6 +124,11 @@ async def sensor_poller():
             
             for config_key, state_key in mapping.items():
                 entity_id = config.get(config_key)
+                if not entity_id:
+                    # v1.3.67: Flexible mapping fallback for older config keys
+                    if config_key == "solar_energy_total": entity_id = config.get("solar_energy")
+                    elif config_key == "house_energy_total": entity_id = config.get("house_energy")
+                
                 if not entity_id: continue
                 
                 state_obj = await state_manager.ha_client.get_state(entity_id)
@@ -143,14 +148,21 @@ async def sensor_poller():
                     if state_manager.solar_tracking["hour_start_energy"] is None:
                         state_manager.solar_tracking["hour_start_energy"] = val
                     
-                    # v1.3.62: Consistent trigger for History Recovery (on solar_energy_today)
-                    if not state_manager._history_recovered:
-                        state_manager._history_recovered = True
-                        logger.info(f">>> POLLER: Triggering history recovery for {entity_id}")
+                    if not state_manager._solar_history_recovered:
+                        state_manager._solar_history_recovered = True
+                        logger.info(f">>> POLLER: Triggering solar history recovery for {entity_id}")
                         db_hist = SessionLocal()
                         asyncio.create_task(repopulate_history_from_ha(db_hist, state_manager.ha_client, entity_id, state_manager.price_arrays))
-                elif state_key == "house_energy_today" and state_manager.house_tracking["hour_start_energy"] is None:
-                    state_manager.house_tracking["hour_start_energy"] = val
+                elif state_key == "house_energy_today":
+                    if state_manager.house_tracking["hour_start_energy"] is None:
+                        state_manager.house_tracking["hour_start_energy"] = val
+                    
+                    if not state_manager._house_history_recovered:
+                        state_manager._house_history_recovered = True
+                        logger.info(f">>> POLLER: Triggering house history recovery for {entity_id}")
+                        db_hist = SessionLocal()
+                        from app.services.house_service import repopulate_history_from_ha as house_repopulate
+                        asyncio.create_task(house_repopulate(db_hist, state_manager.ha_client, entity_id))
                 
                 # Extract complex attributes (Prices, Forecasts)
                 if ("price" in config_key or "solar_forecast" in config_key):
@@ -353,7 +365,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.66"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.67"
     })
     return response
 

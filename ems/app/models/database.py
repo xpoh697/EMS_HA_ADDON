@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, JSON, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
@@ -35,6 +35,8 @@ class HouseHourlyStat(Base):
     timestamp = Column(DateTime, index=True)
     hour = Column(Integer)
     actual_kwh = Column(Float)
+    
+    __table_args__ = (UniqueConstraint('timestamp', name='_house_ts_uc'),)
 
 class SolarHourlyStat(Base):
     __tablename__ = "solar_hourly_stats"
@@ -43,6 +45,8 @@ class SolarHourlyStat(Base):
     hour = Column(Integer)
     actual_kwh = Column(Float)
     forecast_kwh = Column(Float)
+    
+    __table_args__ = (UniqueConstraint('timestamp', name='_solar_ts_uc'),)
 
 class SystemSetting(Base):
     __tablename__ = "system_settings"
