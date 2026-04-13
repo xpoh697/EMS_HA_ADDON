@@ -181,7 +181,7 @@ async def sensor_poller():
                                 val = fuzzy_get(attrs, [attr])
                                 
                             if val:
-                                array, matched_count = extract_price_array(val, target_date=target_dt, is_solar=True, attr_name=attr)
+                                array, matched_count = extract_price_array(val, target_date=target_dt, is_solar=True, attr_name=attr, day_hint=day)
                                 if matched_count > 0:
                                     state_manager.price_arrays[f"solar_forecast_{day}"] = array
                                     if f"solar_{day}" not in state_manager.current_sensors.get("_picked_attrs", []):
@@ -198,7 +198,7 @@ async def sensor_poller():
                                 val = fuzzy_get(attrs, [attr])
                                 
                             if val:
-                                array, matched_count = extract_price_array(val, target_date=target_dt, attr_name=attr)
+                                array, matched_count = extract_price_array(val, target_date=target_dt, attr_name=attr, day_hint=day)
                                 if matched_count > 0:
                                     state_manager.price_arrays[f"{prefix}_prices_{day}"] = array
                                     if f"{prefix}_{day}" not in state_manager.current_sensors.get("_picked_attrs", []):
@@ -365,7 +365,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.67"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.68"
     })
     return response
 

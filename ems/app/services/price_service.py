@@ -3,13 +3,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
+def extract_price_array(raw, target_date=None, is_solar=False, attr_name="", day_hint=None):
     """Parses raw HA attribute data into a 24-hour array of floats."""
     if not raw:
         return [0.0] * 24, False
         
     buckets = [[] for _ in range(24)]
-    target_str = target_date.strftime("%Y-%m-%d") if target_date else None
     items = []
     
     # Support dict format (timestamps as keys)
@@ -23,6 +22,10 @@ def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
     # Support list format (common for Solcast, Pstryk)
     elif isinstance(raw, list):
         # Legacy/Flat-list support (v1.3.48 logic)
+        # 1.3.68 fix: Handle 48-hour lists for tomorrow
+        if len(raw) >= 48 and day_hint == "tomorrow":
+             return [float(x) for x in raw[24:48]], True
+             
         if len(raw) >= 24 and all(isinstance(x, (int, float)) for x in raw[:24]):
             return [float(x) for x in raw[:24]], True
             
@@ -47,34 +50,37 @@ def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
     
     found_count = 0
     for dt, val in items:
-        # Robust Date Matching: Compare .date() objects directly
-        match = False
-        if target_dt_obj and dt.date() == target_dt_obj:
-            match = True
-            
-        if match:
-            h = dt.hour
+        # 1.3.68: Robust Local-Time Date Matching
+        # dt is aware, convert to local system time before comparing dates
+        local_dt = dt.astimezone() if dt.tzinfo else dt
+        if target_dt_obj and local_dt.date() == target_dt_obj:
+            h = dt.hour # Use original hour or local? Use local for display grouping
+            h = local_dt.hour
             if 0 <= h <= 23:
-                # MAGNITUDE FILTER: Relaxed (>100kWh or >100000Wh)
+                # MAGNITUDE FILTER: Relaxed
                 if is_solar and (val > 100.0 and val < 1000.0):
                     continue
                 buckets[h].append(val)
                 found_count += 1
 
-    # FALLBACK LOGIC: If no items matched by date, but we have a 24-hour sequence 
-    # in an attribute clearly labeled "today" or "tomorrow", trust the sequence.
-    is_today_attr = "today" in attr_name.lower()
-    is_tomorrow_attr = "tomorrow" in attr_name.lower()
-    
-    if found_count == 0 and len(items) >= 24 and (is_today_attr or is_tomorrow_attr):
-        day_tag = "today" if is_today_attr else "tomorrow"
-        # Only trigger fallback if target_date also matches that day intent
+    # FALLBACK LOGIC: 
+    if found_count == 0 and len(items) >= 24:
+        day_tag = day_hint or ("today" if "today" in attr_name.lower() else ("tomorrow" if "tomorrow" in attr_name.lower() else None))
+        
         target_is_today = (target_dt_obj == datetime.datetime.now().date())
+        # Only fallback if day info matches the request intent
         if (day_tag == "today" and target_is_today) or (day_tag == "tomorrow" and not target_is_today):
-            logger.info(f">>> PRICE_SERVICE: UNCONDITIONAL fallback for {attr_name}. Trusting sequence as {day_tag}.")
-            for i, (dt, val) in enumerate(items[:24]):
-                buckets[i].append(val)
-                found_count += 1
+            if day_tag == "tomorrow" and len(items) >= 48:
+                logger.info(f">>> PRICE_SERVICE: Tomorrow fallback for {attr_name}. Slicing [24:48].")
+                itms = items[24:48]
+            else:
+                logger.info(f">>> PRICE_SERVICE: Today fallback for {attr_name}. Slicing [0:24].")
+                itms = items[:24]
+                
+            for i, (dt, val) in enumerate(itms):
+                if i < 24:
+                    buckets[i].append(val)
+                    found_count += 1
 
     if found_count > 0:
         logger.info(f">>> PRICE_SERVICE: Parsed {attr_name}. {found_count} matches for {target_date}.")
@@ -82,7 +88,6 @@ def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
         logger.warning(f">>> PRICE_SERVICE: No matches for {attr_name} on {target_date}. Total suspect items: {len(items)}")
 
     result = [0.0] * 24
-    # Some solar sensors provide cumulative Wh per hour (need summation)
     should_sum = is_solar and ("wh_hours" in attr_name.lower() or "energy" in attr_name.lower())
     
     for h in range(24):
@@ -90,12 +95,8 @@ def extract_price_array(raw, target_date=None, is_solar=False, attr_name=""):
         if not vals: continue
         if should_sum:
             s = sum(vals)
-            # Normalize Wh to kWh if needed
             result[h] = round(s / 1000.0 if s > 150.0 else s, 3)
         else:
-            # Standard average for price/integrated power
             result[h] = round(sum(vals) / len(vals), 3)
             
-    if found_count > 0:
-        logger.info(f">>> PRICE_SERVICE: Result[0-3] for {attr_name}: {result[:3]}")
     return result, found_count
