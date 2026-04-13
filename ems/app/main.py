@@ -310,7 +310,8 @@ async def save_settings(data: dict):
         if not mapping_row:
             db.add(SystemSetting(key="mapping", value=mapping))
         else:
-            mapping_row.value = mapping
+            # v1.3.74: Force SQLAlchemy to detect changes by assigning a copy
+            mapping_row.value = dict(mapping)
             
         # Save other settings individually
         for k, v in remaining_data.items():
@@ -433,7 +434,7 @@ async def add_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.update({
         "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.73"
+        "Pragma": "no-cache", "Expires": "0", "X-Version": "1.3.74"
     })
     return response
 
