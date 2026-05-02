@@ -67,6 +67,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.services.async_register(DOMAIN, "reset_bms_profile", handle_reset_bms)
     
+    # Register service to set planner mode
+    async def handle_set_planner_mode(call):
+        mode = call.data.get("mode")
+        hour = call.data.get("hour")
+        power = call.data.get("power")
+        target_soc = call.data.get("target_soc")
+        
+        if mode:
+            manager.planner.set_mode(mode, hour=hour, power=power, target_soc=target_soc, source="user")
+            manager._notify_update()
+            _LOGGER.warning(f"User set planner mode: {mode} at hour {hour if hour is not None else 'current'}")
+
+    hass.services.async_register(DOMAIN, "set_planner_mode", handle_set_planner_mode)
+    
     # Reload integration on options change
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     
@@ -85,7 +99,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await manager.async_stop()
         hass.data[DOMAIN].pop(entry.entry_id)
     if not hass.data[DOMAIN]:
-        for service in ["reset_data", "reset_bms_profile", "export_data", "import_data"]:
+        for service in ["reset_data", "reset_bms_profile", "export_data", "import_data", "set_planner_mode"]:
             hass.services.async_remove(DOMAIN, service)
         
     return unload_ok

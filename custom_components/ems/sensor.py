@@ -58,6 +58,8 @@ from .const import (
 )
 from .const import CONF_BATTERY_VOLTAGE
 from .strategy import StrategyEngine
+from .planner import InverterPlanner
+from .modes import get_mode_config
 from .utils import get_kwh_val, normalize_float, get_price_from_store, round_f
 
 # Legacy aliases for safety during refactoring synchronization
@@ -110,7 +112,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     if manager.price_sell_sensors:
         entities.append(MarketStrategySensor(manager, "sell", "Market SELL Strategy (Discharge)"))
 
-    entities.append(InverterOperationModeSensor(manager, "Inverter Mode Command"))
+    entities.append(InverterPlannerSensor(manager, "Планировщик режимов (48ч)"))
     entities.append(ConsumptionDeviationSensor(manager, "Отклонение потребления (бытовое)"))
 
     if getattr(manager, 'price_buy_sensors', []):
@@ -305,6 +307,7 @@ class EnergyProfileManager:
         self.store = Store(hass, STORAGE_VERSION, f"ems_{entry.entry_id}")
 
         self.strategy_engine = StrategyEngine(self)
+        self.planner = InverterPlanner(self)
 
         self.consumption_sensors = set(cast(list, config_data.get(CONF_CONSUMPTION_SENSORS, [])))
         self.generation_sensors = set(cast(list, config_data.get(CONF_GENERATION_SENSORS, [])))
@@ -770,6 +773,9 @@ class EnergyProfileManager:
         self._unsub_periodic_save = async_track_time_interval(
             self.hass, self._async_periodic_save, timedelta(minutes=5)
         )
+
+        # Initial strategies update
+        self.strategy_engine.update_strategies()
 
     @callback
     def _poll_instant_power(self, now):
@@ -2654,21 +2660,14 @@ class ConsumptionDeviationSensor(EnergyBaseSensor):
         return round_f(deviation, 1) if abs(deviation) < 1000 else 0.0
 
 
-class InverterOperationModeSensor(SensorEntity):
-    """Outputs the specific inverter command state based on logic."""
+class InverterPlannerSensor(SensorEntity):
+    """Sensor that exposes the current planned inverter mode and the 48-hour schedule."""
+    _attr_has_entity_name = True
     def __init__(self, manager, name):
         self.manager = manager
         self._attr_name = name
-        self._attr_unique_id = f"{manager.entry.entry_id}_inverter_mode"
-        self._attr_icon = "mdi:state-machine"
-        self._state = "sale_pv"
-        self._last_logged_params = {
-            "mode": None,
-            "power": 0.0,
-            "target_soc": 0.0,
-            "charge_amps": 0.0,
-        }
-        self._last_logged_hour = None
+        self._attr_unique_id = f"{manager.entry.entry_id}_planner_schedule"
+        self._attr_icon = "mdi:calendar-clock"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, str(manager.entry.entry_id))},
             name=manager.entry.data.get("name", "EMS"),
@@ -2681,499 +2680,51 @@ class InverterOperationModeSensor(SensorEntity):
 
     @property
     def native_value(self):
+        """Return the current mode from the planner."""
         try:
-            batt_soc, _, _ = self.manager.get_battery_state(soc_default=100.0)
-            # v11.4.50: Fix: _get_mode_at returns (mode, reason, bms_debug, peak_start_abs).
-            # Previously used `mode, _` → ValueError (too many values to unpack) →
-            # silently fell through to except → always returned "sale_pv" default.
-            mode, _, _, _ = self._get_mode_at(dt_util.now(), batt_soc)
+            now = datetime.now(self.manager.tz)
+            h_abs = int(now.timestamp() // 3600)
+            plan = self.manager.planner.get_plan(h_abs)
+            mode = plan.get("mode", "sale_pv")
+            self.manager.current_inverter_mode = mode
             return mode
         except Exception as e:
-            _LOGGER.error("Error in InverterOperationModeSensor native_value: %s", e)
+            _LOGGER.error("Error in InverterPlannerSensor native_value: %s", e)
             return "sale_pv"
 
     @property
     def extra_state_attributes(self):
+        """Expose the full 48-hour schedule and current command details."""
         try:
-            now = dt_util.now()
-            batt_soc, _, _ = self.manager.get_battery_state(soc_default=100.0)
+            now = datetime.now(self.manager.tz)
+            h_abs_now = int(now.timestamp() // 3600)
             
-            # Current state calculation
-            mode, reason, bms_debug, peak_start_abs = self._get_mode_at(now, batt_soc)
+            current_plan = self.manager.planner.get_plan(h_abs_now)
             
-            # v11.6.15: Update manager IMMEDIATELY after mode is computed,
-            # before calling get_market_strategy — prevents strategy.py from reading stale "sale_pv" default.
-            self.manager.current_inverter_mode = mode
-            
-            attrs = {}
-            attrs["mode_reason"] = reason
-            attrs["bms_status"] = bms_debug
-            
-            # Forecast 24h
-            forecast = {}
-            sell_strategy = self.manager.get_market_strategy("sell")
-            buy_strategy = self.manager.get_market_strategy("buy")
-            
-            # Get projected SOC from strategy simulations if available
-            buy_sim_log = buy_strategy.get("buy_simulation", {}).get("log", {})
-            sell_sim_log = sell_strategy.get("sell_simulation", {}).get("log", {})
-            
-            for i in range(1, 25):
-                f_dt = now + timedelta(hours=i)
-                is_tom = f_dt.date() > now.date()
-                h_abs = now.hour + i
-                h_key = f"{f_dt.hour:0>2}:59" + (" (Завтра)" if is_tom else "")
+            schedule = {}
+            for i in range(48):
+                h_abs = h_abs_now + i
+                dt = datetime.fromtimestamp(h_abs * 3600, self.manager.tz)
+                plan = self.manager.planner.get_plan(h_abs)
                 
-                # Pick projected SOC and power from strategy simulations
-                f_data = buy_sim_log.get(h_key) or sell_sim_log.get(h_key)
-                f_soc = batt_soc
-                f_gen = 0.0
-                f_load = 0.5
-                if isinstance(f_data, dict):
-                    f_soc = f_data.get("soc", batt_soc)
-                    f_gen = f_data.get("gen_kw", 0.0)
-                    f_load = f_data.get("load_kw", 0.5)
-                elif isinstance(f_data, (int, float)):
-                    f_soc = float(f_data)
+                h_str = dt.strftime("%Y-%m-%d %H:00")
+                mode = plan.get("mode", "sale_pv")
+                source = plan.get("source", "system")
+                p_val = plan.get("power", 0.0)
+                t_soc = plan.get("target_soc", 0.0)
+                
+                schedule[h_str] = f"{mode} ({p_val}kW, {t_soc}% SOC) [{source}]"
 
-                f_mode, f_reason, f_bms, f_peak = self._get_mode_at(
-                    f_dt, f_soc, is_forecast=True, abs_hour=h_abs,
-                    avg_gen_override=f_gen, avg_load_override=f_load
-                )
-                
-                # Add price info if applicable (v11.4.15 UI Polish)
-                p_suffix = ""
-                try:
-                    h_idx_s = str(f_dt.hour)
-                    if "buy" in f_mode:
-                        p_val = (buy_strategy.get("tomorrow_prices", {}) if is_tom else buy_strategy.get("today_prices", {})).get(h_idx_s)
-                        if p_val is not None:
-                            p_suffix = f" (BP: {float(p_val):.2f})"
-                    else:
-                        # For all other modes (sale_pv, sale_pv_bat, etc), show Sell Price
-                        p_val = (sell_strategy.get("tomorrow_prices", {}) if is_tom else sell_strategy.get("today_prices", {})).get(h_idx_s)
-                        if p_val is not None:
-                            p_suffix = f" (SP: {float(p_val):.2f})"
-                except Exception:
-                    pass
-                
-                # Smart Forecast Logic: Hide 'boring' reasons for sale_pv, show everything else
-                is_boring = any(f_reason.startswith(p) for p in ["Стандартная работа", "Значения по умолчанию"])
-                
-                if f_mode == "sale_pv" and (is_boring or not f_reason):
-                    f_display = f"{f_mode}{p_suffix}"
-                else:
-                    # Show diagnosis for non-standard modes or strategic fallbacks (v11.4.17)
-                    f_display = f"{f_mode}{p_suffix}: \"{f_reason}\""
-                
-                # Format the key (simple HH:00)
-                h_full_key = f_dt.strftime("%H:00")
-                forecast[h_full_key] = f_display
-                
-            attrs["planned_modes_24h"] = forecast
-            
-            # v11.1.22/58: Synchronize with dynamic strategy results
-            chg_reason = ""
-            # Check for fixed hourly anchors for stable display
-            fixed_buy = self.manager.fixed_strategy_data.get("buy", {})
-            fixed_sell = self.manager.fixed_strategy_data.get("sell", {})
-            hour_str = f"{now.hour}"
-            
-            p_val = 0.0
-            t_soc = 0.0
-            c_amps_fixed = 0.0
-            
-            if mode == "buy":
-                # Priority: use fixed hourly value if available
-                if fixed_buy.get("hour_key", "").startswith(hour_str):
-                    p_val = fixed_buy["power"]
-                    t_soc = fixed_buy["target_soc"]
-                    c_amps_fixed = fixed_buy.get("charge_amps", 0.0)
-                else:
-                    p_val = buy_strategy.get("recommended_power_kw", 0.0)
-                    t_soc = buy_strategy.get("target_soc", 0.0)
-                    c_amps_fixed = None
-            elif mode == "no_pv_sale_no_bat":
-                p_val = 0.0
-                t_soc = float(round_f(batt_soc, 1))
-                chg_reason = "wait_for_negative"
-                c_amps_fixed = 0.0
-            elif mode == "sale_pv_bat":
-                # For sale_pv_bat, we ALSO use the fixed anchor if available
-                if fixed_sell.get("hour_key", "").startswith(hour_str):
-                    p_val = fixed_sell["power"]
-                    t_soc = fixed_sell["target_soc"]
-                    c_amps_fixed = fixed_sell.get("charge_amps", 0.0)
-                else:
-                    p_val = sell_strategy.get("recommended_power_kw", 0.0)
-                    t_soc = sell_strategy.get("target_soc", 0.0)
-                    c_amps_fixed = None
-            else:
-                p_val = 0.0
-                t_soc = 0.0
-                c_amps_fixed = 0.0
-
-            # Extract diagnostic info
-            if not chg_reason:
-                if mode == "buy":
-                    chg_reason = buy_strategy.get("charge_reason", "")
-                elif "sale" in mode and sell_strategy.get("state") == "active":
-                    chg_reason = sell_strategy.get("charge_reason", "")
-
-            attrs["power"] = p_val
-            attrs["target_soc"] = t_soc
-            attrs["charge_reason"] = chg_reason
-            
-            # v11.1.38: Always show charge_amps if voltage sensor is available (0 if not charging)
-            if self.manager.battery_voltage_sensor:
-                if c_amps_fixed is not None:
-                    attrs["charge_amps"] = c_amps_fixed
-                else:
-                    v_val = self.manager.get_sensor_float(self.manager.battery_voltage_sensor)
-                    if v_val and v_val > 0.1 and p_val > 0:
-                        attrs["charge_amps"] = round_f((p_val * 1000.0) / v_val, 2)
-                    else:
-                        attrs["charge_amps"] = 0.0
-            
-            attrs["is_preparing_for_peak"] = (peak_start_abs is not None)
-            attrs["next_peak_start_hour"] = self.manager.strategy_engine._format_h(peak_start_abs)
-            attrs["morning_soc_target"] = (sell_strategy.get("arbitrage_buyback") or {}).get("target_morning_soc_pct", 25.0)
-            attrs["morning_soc_projected"] = (sell_strategy.get("sell_simulation") or {}).get("projected_soc_morning_pct", 0.0)
-            attrs["buy_debug"] = buy_strategy.get("buy_debug", "Нет данных")
-            
-            self.manager.current_inverter_mode = mode
-
-            # Round 112: Inverter Change Logging
-            curr_params = {
-                "mode": mode,
-                "power": round_f(p_val, 1),
-                "target_soc": round_f(t_soc, 1),
-                "charge_amps": round_f(attrs.get("charge_amps", 0.0), 1),
+            return {
+                "power": current_plan.get("power", 0.0),
+                "target_soc": current_plan.get("target_soc", 0.0),
+                "source": current_plan.get("source", "system"),
+                "schedule_48h": schedule
             }
-            
-            # Check for significant changes OR new hour (Round 113)
-            has_changed = (
-                curr_params["mode"] != self._last_logged_params.get("mode") or
-                abs(curr_params["power"] - self._last_logged_params.get("power", 0.0)) >= 0.1 or
-                abs(curr_params["target_soc"] - self._last_logged_params.get("target_soc", 0.0)) >= 0.1 or
-                abs(curr_params["charge_amps"] - self._last_logged_params.get("charge_amps", 0.0)) >= 0.5 or
-                now.hour != self._last_logged_hour
-            )
-            
-            if has_changed:
-                log_tag = "[Inverter Status]" if now.hour != self._last_logged_hour and curr_params["mode"] == self._last_logged_params.get("mode") else "[Inverter Change]"
-                old_mode = self._last_logged_params.get("mode", "initial")
-                _LOGGER.warning(
-                    "%s %s %s -> %s | Power: %.1f kW | Target SOC: %.1f%% | Amps: %.1f A | Reason: %s",
-                    now.strftime("%Y-%m-%d %H:%M:%S"), log_tag, old_mode, mode, p_val, t_soc, attrs.get("charge_amps", 0.0), reason
-                )
-                self._last_logged_params = curr_params
-                self._last_logged_hour = now.hour
-
-            return attrs
         except Exception as e:
-            _LOGGER.error("Error in InverterOperationModeSensor extra_state_attributes: %s", e)
+            _LOGGER.error("Error in InverterPlannerSensor extra_state_attributes: %s", e)
             return {"error": str(e)}
 
-    def _get_mode_at(self, dt_now, batt_soc, is_forecast=False, abs_hour=None, avg_gen_override=None, avg_load_override=None):
-        """Calculates the inverter mode for a given timestamp and SOC."""
-        mode = "sale_pv" # default
-        # v11.6.63: now_wall MUST be the real wall clock time, NOT the forecast time.
-        # Using dt_now here caused _now_h_for_forecast = forecast_hour (e.g. 19),
-        # making check_h_abs == _now_h_for_forecast always True for the target hour,
-        # which then used sell_strategy.get("state") == "active" (False at 11:00) 
-        # instead of the correct active_hours lookup → is_selling_active always False → sale_pv.
-        now_wall = dt_util.now()
-        now_h_wall = now_wall.hour
-        
-        # v11.4.21: Fix date and hour alignment for forecast
-        # today_str MUST be relative to the simulated time (dt_now)
-        today_str = dt_now.strftime("%Y-%m-%d")
-        sim_h = dt_now.hour
-        
-        # Calculate relative hour from simulation start for indexing into strategy results
-        # This prevents the 'Ghost Tomorrow' issue where indices and hours mismatch.
-        now_h_start = now_wall.replace(minute=0, second=0, microsecond=0)
-        dt_h_start = dt_now.replace(minute=0, second=0, microsecond=0)
-        rel_h = int((dt_h_start - now_h_start).total_seconds() // 3600)
-        
-        # Target check hour (use rel_h for strategy alignment, sim_h for price alignment)
-        check_h_rel = rel_h
-        # v11.6.10: Use abs_hour if provided (fixes tomorrow's forecast seeing today's peaks)
-        check_h_abs = sim_h if abs_hour is None else abs_hour
-
-        try:
-            from .const import CONF_PRICE_STOP_SELL, CONF_PRICE_SELL_ONLY_PV, CONF_SALE_PV_NO_BAT_MAX_HOUR, CONF_PRICE_SELL_LIMIT, CONF_MIN_SOC_BAT, CONF_AI_DISCHARGE_LIMIT, CONF_AI_CHARGE_LIMIT
-            price_stop_sell = self.manager.get_setting(CONF_PRICE_STOP_SELL, 0.0)
-            price_sell_only_pv = self.manager.get_setting(CONF_PRICE_SELL_ONLY_PV, 999.0)
-            sale_pv_no_bat_max_hour = self.manager.get_setting(CONF_SALE_PV_NO_BAT_MAX_HOUR, 13.0)
-            price_sell_limit = self.manager.get_setting(CONF_PRICE_SELL_LIMIT, 5.0)
-        except ImportError:
-            price_stop_sell = 0.0
-            price_sell_only_pv = 999.0
-            sale_pv_no_bat_max_hour = 13.0
-            price_sell_limit = 5.0
-
-        min_soc = self.manager.get_setting(CONF_MIN_SOC_BAT, 10.0)
-        # Use absolute hour of simulated date for price
-        cur_price = self.manager.get_price("sell", today_str, sim_h)
-
-        # Strategy results
-        sell_strategy = self.manager.get_market_strategy("sell") or {}
-        buy_strategy = self.manager.get_market_strategy("buy") or {}
-        
-        # When forecasting, we use absolute hours to match strategy indices (v11.4.20)
-        if is_forecast:
-            # v11.6.10: check_h_abs is now correctly absolute, so no +24 hack is needed
-            # v11.6.54: For the CURRENT wall-clock hour in the forecast, use real-time state
-            # (respects Safety Block). For future hours, use active_hours as before.
-            # This prevents planned_modes_24h from showing sale_pv_bat at the current hour
-            # while the actual mode stays sale_pv due to Safety Block firing.
-            _now_h_for_forecast = now_wall.hour
-            if check_h_abs == _now_h_for_forecast:
-                is_selling_active = sell_strategy.get("state") == "active"
-                is_buying_active = buy_strategy.get("state") == "active"
-            else:
-                _active_h_raw = sell_strategy.get("active_hours", [])
-                is_selling_active = check_h_abs in _active_h_raw
-                is_buying_active = check_h_abs in buy_strategy.get("active_hours", [])
-                # v11.6.62: debug
-                if check_h_abs in [19, 20]:
-                    _LOGGER.warning("[Mode Forecast] h=%s active_hours=%s type=%s is_selling=%s",
-                                    check_h_abs, _active_h_raw, type(_active_h_raw).__name__, is_selling_active)
-        else:
-            is_selling_active = sell_strategy.get("state") == "active"
-            is_buying_active = buy_strategy.get("state") == "active"
-
-        # SOC and Capacity
-        _, batt_cap, _ = self.manager.get_battery_state(soc_default=100.0)
-
-        # Peak preparation logic (only for current time or relative forecast window)
-        is_preparing_for_peak = False
-        target_hours_sell = sell_strategy.get("active_hours", [])
-        peak_start_abs = None
-        for h in sorted(target_hours_sell):
-            if h > check_h_abs:
-                peak_start_abs = h
-                break
-        
-        bms_debug = {"status": "Ожидание" if not is_forecast else "Прогноз"}
-        
-        # v11.1.61: Differentiate target by current strategic mode for diagnostics
-        buy_p_cur = self.manager.get_price("buy", today_str, sim_h)
-        is_neg_buy = bool(buy_p_cur is not None and buy_p_cur <= 0.0)
-        # Target SOC Logic for diagnostics
-        ai_discharge_limit = self.manager.get_setting(CONF_AI_DISCHARGE_LIMIT, 100.0)
-        ai_charge_limit = self.manager.get_setting(CONF_AI_CHARGE_LIMIT, 100.0)
-        
-        active_target = ai_discharge_limit
-        if is_neg_buy:
-            active_target = ai_charge_limit
-        
-        # Determine if we are in "Buy" strategic mode (v11.4.47: removed duplicate assignment that overrode line 2835)
-        if is_buying_active:
-            active_target = ai_charge_limit
-
-        # Skip complex peak simulation during 24h forecast to save CPU
-        if not is_forecast and batt_cap > 0:
-            if batt_soc >= (active_target - 0.5):
-                bms_debug = {"status": "Батарея уже заряжена", "target_soc": active_target, "current_soc": batt_soc}
-            else:
-                end_h = peak_start_abs if peak_start_abs is not None else (now_h_wall + 24)
-                sim_range = [h for h in range(now_h_wall, end_h) if h < 48]
-                sim_soc, sim_log, _ = self.manager.strategy_engine.run_soc_simulation(batt_soc, sim_range, now_wall)
-                
-                ever_fully_charged = any(
-                    (val.get("soc", 0.0) if isinstance(val, dict) else val) >= (ai_discharge_limit - 0.5) 
-                    for val in sim_log.values()
-                )
-                total_needed = 0
-                for i, val in enumerate(sim_log.values()):
-                    val_soc = val.get("soc", 0.0) if isinstance(val, dict) else val
-                    if val_soc >= (ai_discharge_limit - 0.5):
-                        total_needed = i + 1
-                        break
-                
-                if peak_start_abs is not None:
-                    # v11.6.56: Only prepare for peak if peak price is higher than current price
-                    # to avoid blocking profitable sales now for less profitable peaks later.
-                    peak_price = self.manager.get_price("sell", today_str, peak_start_abs % 24)
-                    cur_p = cur_price if cur_price is not None else 0.0
-                    
-                    if peak_price is not None and peak_price > (cur_p + 0.1): # 0.1 margin
-                        if not ever_fully_charged:
-                            is_preparing_for_peak = True
-                            bms_debug["status"] = "Внимание: АКБ не успеет зарядиться к Пику!"
-                        else:
-                            latest_start = peak_start_abs - total_needed
-                            if now_h_wall < latest_start:
-                                bms_debug["status"] = f"Зарядка отложена (хватит {total_needed}ч)"
-                            else:
-                                is_preparing_for_peak = True
-                                bms_debug["status"] = "Штатный заряд к пику"
-                    else:
-                        p_p_disp = f"{peak_price:.2f}" if peak_price is not None else "N/A"
-                        bms_debug["status"] = f"Продажа выгоднее ({cur_p:.2f} >= {p_p_disp})"
-
-        # State Machine
-        reason = "Значения по умолчанию"
-        fixed_buy = self.manager.fixed_strategy_data["buy"]
-        fixed_sell = self.manager.fixed_strategy_data["sell"]
-        
-        # Pre-calculate common conditions
-        # We use 5-minute averages for the mode selection to be more responsive as requested
-        # For forecasts, we use predicted values from the simulation log if provided
-        avg_load = self.manager.avg_load_5m_kw if not is_forecast else (avg_load_override if avg_load_override is not None else 0.5)
-        avg_gen = self.manager.avg_gen_5m_kw if not is_forecast else (avg_gen_override if avg_gen_override is not None else 0.0)
-        has_surplus = bool(avg_gen > (avg_load + 0.05))
-        is_before_limit_hour = bool(sim_h < sale_pv_no_bat_max_hour) # v11.4.20: Fixed limit comparison
-
-        # State Machine Ladder
-        # v11.1.22: For Negative Prices, always use 'buy' mode to power house from grid
-        buy_p_cur = self.manager.get_price("buy", today_str, sim_h)
-        is_neg_buy = bool(buy_p_cur is not None and buy_p_cur <= 0.0)
-
-        # v11.6.22: Use strategy engine's precise survival simulation instead of rough heuristics
-        # Removed avg_gen > 0.01 requirement because curtailment or clouds could falsely drop the mode
-        is_waiting_for_neg = False
-        neg_h = buy_strategy.get("first_negative_hour")
-        can_wait = buy_strategy.get("can_wait_for_negative", False)
-        
-        # Безопасный отладочный вывод (теперь после определения переменных)
-        bms_debug["debug_can_wait"] = can_wait
-        bms_debug["debug_neg_h"] = neg_h
-        bms_debug["debug_soc_at_neg"] = buy_strategy.get("debug_soc_at_neg", "N/A")
-        bms_debug["debug_threshold"] = buy_strategy.get("debug_threshold", "N/A")
-        bms_debug["debug_cur_price"] = cur_price
-        
-        # We drop the cur_price < price_sell_only_pv condition here.
-        # If we can wait for a negative price, we MUST block charging. 
-        # Inside the ladder, we will decide whether to sell PV or just wait.
-        if can_wait and neg_h is not None:
-            # v11.6.29: Use check_h_abs (absolute hour) to compare with neg_h (absolute hour).
-            # Previously used check_h_rel (relative = offset from now), which caused hours AFTER
-            # the negative price window to still show no_pv_sale_no_bat (e.g., rel=4 < neg_h=12 → True).
-            if not is_forecast or check_h_abs < neg_h:
-                # 1. Check if there are any planned AI sales between now and the negative price
-                planned_sales = [h for h in sell_strategy.get("active_hours", []) if check_h_abs <= h < neg_h]
-                if not planned_sales:
-                    is_waiting_for_neg = True
-
-        # State Machine Ladder
-        if is_buying_active:
-            # v11.6.32 - Priority 1: Buying (Strictly restricted to active AI strategy)
-            mode = "buy"
-            reason = "Активна стратегия ПОКУПКИ"
-        
-        elif batt_soc <= min_soc:
-            # v11.6.567 - Priority 2: Emergency SOC management (Survival First)
-            if has_surplus:
-                if cur_price is not None and cur_price < price_stop_sell:
-                    mode = "stop_sale"
-                    reason = f"Добор солнца без экспорта (Цена {cur_price or 0.0:.2f} < {price_stop_sell})"
-                else:
-                    mode = "sale_pv"
-                    reason = f"Добор солнца в АКБ (limit: {min_soc}%)"
-            else:
-                mode = "bat_emergency"
-                reason = f"Заряд ({round_f(batt_soc, 1)}%) <= Минимума ({min_soc}%): Ожидание добора"
-
-        elif is_waiting_for_neg:
-            # v11.6.567 - Priority 3: Wait for negative price
-            # We ONLY wait if there's actually something to wait for (solar presence or daytime)
-            can_sell_pv = False
-            if cur_price is not None and cur_price >= price_sell_only_pv and has_surplus:
-                if is_before_limit_hour and cur_price > 0:
-                    can_sell_pv = True
-            
-            if can_sell_pv:
-                mode = "sale_pv_no_bat"
-                reason = f"Продажа только солнца: Цена ({cur_price:.2f}) >= Порога ({price_sell_only_pv:.2f}) (Ожидаем отриц. цену)"
-            elif has_surplus:
-                mode = "no_pv_sale_no_bat"
-                neg_h_disp = neg_h if neg_h < 24 else f"{neg_h-24} (Завтра)"
-                reason = f"Ожидание отриц. цен ({neg_h_disp}г): Экономим место в АКБ"
-            else:
-                # v11.6.567: No surplus at night? Fallback to standard daytime/night logic
-                mode = "sale_pv"
-                reason = "Ожидание отриц. цен (ночь): Стандартная работа"
-
-        elif is_selling_active:
-            # Active AI / Arbitrage strategy
-            mode = "sale_pv_bat"
-            reason = "Активна стратегия ПРОДАЖИ (AI)"
-            
-        elif cur_price is not None and cur_price >= price_sell_only_pv and (has_surplus or is_selling_active):
-            # SAFE MORNING MODE (User's 4 conditions)
-            # 1. Price >= Threshold
-            # 2. Before user limit hour
-            # 3. Averaged Surplus > 0
-            # 4. Simulation shows we will be full enough for evening/peak
-            
-            # v7.9 - Morning Survival Guard
-            # We don't just check for "Preparing for Peak Today", we also check 
-            # if we have enough energy to reach tomorrow morning (Sunrise).
-            morning_soc_proj = (sell_strategy.get("sell_simulation") or {}).get("projected_soc_morning_pct", 0.0)
-            target_morning = (sell_strategy.get("arbitrage_buyback") or {}).get("target_morning_soc_pct", 25.0)
-            is_low_for_morning = bool(morning_soc_proj < target_morning)
-            
-            # v11.3.40: Strategic Preparation Detection
-            # If we are holding charge (mode will be sale_pv) despite high prices, we are preparing.
-            is_energy_low_for_evening = bool(is_preparing_for_peak or is_low_for_morning)
-            
-            # Smart Deficit Throttling Awareness
-            is_throttled = bool(sell_strategy.get("recommended_power_kw", 0.0) < 0.01 and rel_h in sell_strategy.get("active_hours", []))
-            
-            if is_throttled or is_energy_low_for_evening:
-                is_preparing_for_peak = True
-
-            # v11.1.91 - Priority check: price must be > 0 at least
-            if is_before_limit_hour and has_surplus and not (is_throttled or is_energy_low_for_evening) and cur_price > 0:
-                mode = "sale_pv_no_bat"
-                reason = f"Продажа только солнца: Цена ({cur_price or 0.0:.2f}) >= Порога ({price_sell_only_pv or 0.0:.2f}), утро, есть излишек и запас энергии"
-            elif cur_price < price_stop_sell:
-                # If specific morning conditions not met, we must STILL respect the global stop_sell floor
-                mode = "stop_sale"
-                reason = f"Продажа заблокирована: Цена ({cur_price or 0.0:.2f}) < Порога ({price_stop_sell or 0.0:.2f})"
-            else:
-                # If conditions for sale_pv_no_bat not met, fallback to standard or charge
-                mode = "sale_pv"
-                if is_throttled or is_energy_low_for_evening:
-                    if is_throttled:
-                         reason = f"Подготовка к {self.manager.strategy_engine._format_h(peak_start_abs)} (мало солнца)"
-                    elif is_energy_low_for_evening and sell_strategy.get("morning_autopilot_active"):
-                         prefix = "Продажа" if mode == "sale_pv_bat" else "Питание дома"
-                         sun_note = " (мало солнца)" if not has_surplus else ""
-                         reason = f"{prefix} до {sell_strategy.get('morning_autopilot_floor')}% (защита утра{sun_note})"
-                    elif peak_start_abs is not None and peak_start_abs < 48:
-                        reason = f"Подготовка к {self.manager.strategy_engine._format_h(peak_start_abs)}"
-                    elif is_low_for_morning:
-                        reason = f"Резерв на утро (SOC {morning_soc_proj:.0f}%)"
-                    else:
-                        reason = "Коплю заряд"
-                elif not is_before_limit_hour:
-                    reason = f"Цена ({cur_price or 0.0:.2f}) >= Порога ост. продажи ({price_stop_sell or 0.0:.2f})"
-                elif not has_surplus:
-                    reason = f"Цена ({cur_price or 0.0:.2f}) >= Порога ост. продажи ({price_stop_sell or 0.0:.2f}), но нет излишка солнца"
-                else:
-                    reason = "Цена выше порога, но условия продажи PV+АКБ не соблюдены"
-            
-        elif cur_price is None:
-            # v11.6.65: Handle missing future prices gracefully
-            mode = "sale_pv"
-            reason = "Нет данных о цене (завтра?)"
-            
-        elif cur_price < price_stop_sell:
-            # Global price floor for ANY selling
-            mode = "stop_sale"
-            reason = f"Продажа заблокирована: Цена ({cur_price:.2f}) < Порога ({price_stop_sell:.2f})"
-            
-        else:
-            # Standard daytime operation (Sun is shining, prices are moderate, battery is okay)
-            mode = "sale_pv"
-            reason = f"Стандартная работа: Цена ({cur_price:.2f}) выше порога остановки ({price_stop_sell:.2f})"
-
-        return mode, reason, bms_debug, peak_start_abs
 
 class InstantPowerAveragedSensor(SensorEntity):
     """Displays the averaged instantaneous power (W/kW sensors) over the last 10 minutes."""
