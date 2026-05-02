@@ -1,0 +1,372 @@
+import voluptuous as vol
+
+from homeassistant import config_entries
+from homeassistant.helpers import selector
+import homeassistant.helpers.config_validation as cv
+
+from .const import (
+    DOMAIN,
+    CONF_CONSUMPTION_SENSORS,
+    CONF_GENERATION_SENSORS,
+    CONF_DEDUCT_SENSORS,
+    CONF_CUSTOM_PERIOD,
+    CONF_FORECAST_TODAY_REMAINING,
+    CONF_FORECAST_TODAY_HOURLY,
+    CONF_FORECAST_TOMORROW,
+    CONF_BATTERY_SOC,
+    CONF_BATTERY_CAPACITY,
+    CONF_BATTERY_POWER,
+    CONF_PRICE_BUY,
+    CONF_PRICE_SELL,
+    CONF_DEDUCT_SETTINGS,
+    CONF_POWER_LOAD_SENSORS,
+    CONF_POWER_GEN_SENSORS,
+    CONF_PRESENCE_SENSORS,
+    CONF_INVERTER_LOSSES_SENSOR,
+    CONF_TOTAL_SYSTEM_COST,
+    CONF_BATTERY_COST,
+    CONF_BATTERY_RATED_CYCLES,
+    CONF_ANOMALY_THRESHOLD,
+    CONF_GRID_IMPORT_SENSORS,
+    CONF_GRID_EXPORT_SENSORS,
+    CONF_POWER_SENSOR,
+    CONF_ACTIVE_HOLD_TIME,
+    CONF_IS_CYCLIC,
+    CONF_ONLY_SOLAR,
+    CONF_ACTIVE_SENSOR,
+    CONF_GRID_POWER,
+    CONF_BATTERY_VOLTAGE,
+)
+
+
+from homeassistant.core import callback
+
+class EnergyManagementFlowMixin:
+    """Helper for shared steps between Config and Options flows."""
+    async def _async_step_deduct_settings_logic(self, user_input=None):
+        """Shared logic for both flows to handle sensor settings looping."""
+        errors = {}
+        deduct_sensors = self._user_input.get(CONF_DEDUCT_SENSORS, [])
+
+        if "deduct_settings_index" not in self._user_input:
+            self._user_input["deduct_settings_index"] = 0
+            if CONF_DEDUCT_SETTINGS not in self._user_input:
+                self._user_input[CONF_DEDUCT_SETTINGS] = {}
+            
+        idx = self._user_input["deduct_settings_index"]
+
+        if idx >= len(deduct_sensors):
+            self._user_input.pop("deduct_settings_index", None)
+            if hasattr(self, "async_step_investment_settings"):
+                return await self.async_step_investment_settings()
+            return self.async_show_form(step_id="user")
+
+        current_sensor = deduct_sensors[idx]
+
+        if user_input is not None:
+            self._user_input[CONF_DEDUCT_SETTINGS][current_sensor] = {
+                "name": user_input.get("name", current_sensor.split('.')[-1].replace('_', ' ').title()),
+                "priority": user_input.get("priority", 1),
+                "required_kwh": user_input.get("required_kwh", 0.0),
+                "required_kw": user_input.get("required_kw", 0.0),
+                CONF_ONLY_SOLAR: user_input.get(CONF_ONLY_SOLAR, False),
+                CONF_POWER_SENSOR: user_input.get(CONF_POWER_SENSOR),
+                CONF_ACTIVE_HOLD_TIME: user_input.get(CONF_ACTIVE_HOLD_TIME, 15),
+                CONF_IS_CYCLIC: user_input.get(CONF_IS_CYCLIC, False),
+                CONF_ACTIVE_SENSOR: user_input.get(CONF_ACTIVE_SENSOR),
+            }
+            self._user_input["deduct_settings_index"] += 1
+            return await self._async_step_deduct_settings_logic()
+
+        # Search hierarchically: Flow edits (highest) > Entry Options > Entry Data (lowest)
+        all_settings = {}
+        
+        entry = getattr(self, "config_entry", None)
+        if entry:
+            if entry.data:
+                all_settings.update(entry.data.get(CONF_DEDUCT_SETTINGS, {}))
+            if entry.options:
+                all_settings.update(entry.options.get(CONF_DEDUCT_SETTINGS, {}))
+
+        # Flow edits overlap (contains merged data/options + current edits)
+        all_settings.update(self._user_input.get(CONF_DEDUCT_SETTINGS, {}))
+
+        existing = all_settings.get(current_sensor, {})
+        if not isinstance(existing, dict):
+            existing = {}
+
+        def get_saved_str(key):
+            val = existing.get(key)
+            if not val or val == "undefined": return None
+            if isinstance(val, (list, tuple)): return str(val[0]) if val else None
+            return str(val)
+
+        sensor_display = current_sensor.replace("sensor.", "").replace("_", " ").title()
+        
+        schema_dict = {
+            vol.Optional("name", default=existing.get("name", sensor_display)): str,
+            vol.Required("priority", default=existing.get("priority", 1)): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
+            vol.Required("required_kwh", default=existing.get("required_kwh", 0.0)): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=100.0)),
+            vol.Required("required_kw", default=existing.get("required_kw", 0.0)): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=50.0)),
+            vol.Optional(CONF_ONLY_SOLAR, default=existing.get(CONF_ONLY_SOLAR, False)): bool,
+        }
+
+        # Power Sensor Selector
+        p_val = get_saved_str(CONF_POWER_SENSOR)
+        schema_dict[vol.Optional(CONF_POWER_SENSOR, default=p_val) if p_val else vol.Optional(CONF_POWER_SENSOR)] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
+        )
+
+        schema_dict[vol.Optional(CONF_ACTIVE_HOLD_TIME, default=existing.get(CONF_ACTIVE_HOLD_TIME, 15))] = vol.All(vol.Coerce(int), vol.Range(min=1, max=120))
+        schema_dict[vol.Optional(CONF_IS_CYCLIC, default=existing.get(CONF_IS_CYCLIC, False))] = bool
+
+        # Active Sensor Selector
+        a_val = get_saved_str(CONF_ACTIVE_SENSOR)
+        schema_dict[vol.Optional(CONF_ACTIVE_SENSOR, default=a_val) if a_val else vol.Optional(CONF_ACTIVE_SENSOR)] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="binary_sensor")
+        )
+
+        return self.async_show_form(
+            step_id="deduct_settings",
+            data_schema=vol.Schema(schema_dict),
+            errors=errors,
+            description_placeholders={"sensor_name": sensor_display}
+        )
+
+class EnergyManagementConfigFlow(config_entries.ConfigFlow, EnergyManagementFlowMixin, domain=DOMAIN):
+    """Handle a config flow for EMS."""
+
+    VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return EnergyManagementOptionsFlow(config_entry)
+
+    def __init__(self):
+        """Initialize."""
+        self._user_input = {}
+
+    async def async_step_user(self, user_input=None):
+        """Handle the initial step."""
+        errors = {}
+
+        if user_input is not None:
+            self._user_input.update(user_input)
+            deduct_sensors = user_input.get(CONF_DEDUCT_SENSORS, [])
+            
+            if deduct_sensors:
+                return await self.async_step_deduct_settings()
+
+            return await self.async_step_investment_settings()
+
+        schema = vol.Schema(
+            {
+                vol.Required("name", default="EMS"): cv.string,
+                vol.Required(CONF_CONSUMPTION_SENSORS, default=[]): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True, domain="sensor")
+                ),
+                vol.Optional(CONF_GENERATION_SENSORS, default=[]): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True, domain="sensor")
+                ),
+                vol.Optional(CONF_DEDUCT_SENSORS, default=[]): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True, domain="sensor")
+                ),
+                vol.Optional(CONF_FORECAST_TODAY_REMAINING, default=[]): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True, domain="sensor")
+                ),
+                vol.Optional(CONF_FORECAST_TODAY_HOURLY, default=[]): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True, domain="sensor")
+                ),
+                vol.Optional(CONF_FORECAST_TOMORROW, default=[]): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True, domain="sensor")
+                ),
+                vol.Optional(CONF_POWER_LOAD_SENSORS, default=[]): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True, domain="sensor")
+                ),
+                vol.Optional(CONF_POWER_GEN_SENSORS, default=[]): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True, domain="sensor")
+                ),
+                vol.Optional(CONF_PRESENCE_SENSORS, default=[]): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True, domain=["person", "binary_sensor"])
+                ),
+                vol.Optional(CONF_BATTERY_SOC): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(CONF_BATTERY_CAPACITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(CONF_BATTERY_POWER): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(CONF_GRID_POWER): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(CONF_BATTERY_VOLTAGE): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(CONF_PRICE_BUY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(CONF_PRICE_SELL): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(CONF_GRID_IMPORT_SENSORS, default=[]): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True, domain="sensor")
+                ),
+                vol.Optional(CONF_GRID_EXPORT_SENSORS, default=[]): selector.EntitySelector(
+                    selector.EntitySelectorConfig(multiple=True, domain="sensor")
+                ),
+                vol.Optional(CONF_CUSTOM_PERIOD, default=14): vol.All(vol.Coerce(int), vol.Range(min=1, max=365)),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=schema,
+            errors=errors,
+        )
+
+    async def async_step_deduct_settings(self, user_input=None):
+        """Handle settings for deducted sensors (Priority and Energy)."""
+        return await self._async_step_deduct_settings_logic(user_input)
+
+    async def async_step_investment_settings(self, user_input=None):
+        """Handle investment and ROI settings."""
+        if user_input is not None:
+            self._user_input.update(user_input)
+            return self.async_create_entry(
+                title=self._user_input.get("name", "EMS"), data=self._user_input
+            )
+
+        schema = vol.Schema({
+            vol.Optional(CONF_TOTAL_SYSTEM_COST, default=self._user_input.get(CONF_TOTAL_SYSTEM_COST, 0.0)): vol.All(vol.Coerce(float), vol.Range(min=0.0)),
+            vol.Optional(CONF_BATTERY_COST, default=self._user_input.get(CONF_BATTERY_COST, 0.0)): vol.All(vol.Coerce(float), vol.Range(min=0.0)),
+            vol.Optional(CONF_BATTERY_RATED_CYCLES, default=self._user_input.get(CONF_BATTERY_RATED_CYCLES, 6000)): vol.All(vol.Coerce(int), vol.Range(min=1)),
+            vol.Optional(CONF_ANOMALY_THRESHOLD, default=self._user_input.get(CONF_ANOMALY_THRESHOLD, 2.0)): vol.All(vol.Coerce(float), vol.Range(min=1.1, max=10.0)),
+        })
+
+        return self.async_show_form(
+            step_id="investment_settings",
+            data_schema=schema,
+        )
+
+class EnergyManagementOptionsFlow(config_entries.OptionsFlow, EnergyManagementFlowMixin):
+    """Handle options flow."""
+
+    def __init__(self, config_entry):
+        """Initialize options flow."""
+        self._user_input = dict(config_entry.data)
+        if config_entry.options:
+            self._user_input.update(config_entry.options)
+
+    async def async_step_init(self, user_input=None):
+        """Manage the options."""
+        errors = {}
+
+        if user_input is not None:
+            self._user_input.update(user_input)
+            deduct_sensors = user_input.get(CONF_DEDUCT_SENSORS, [])
+            
+            if deduct_sensors:
+                return await self.async_step_deduct_settings()
+
+            return await self.async_step_investment_settings()
+
+        schema_dict = {}
+        
+        # Helper to ensure lists for multiple=True selectors
+        def get_list(key):
+            val = self._user_input.get(key, [])
+            if isinstance(val, tuple):
+                val = list(val)
+            elif not isinstance(val, list):
+                val = [val] if val else []
+            # remove empty strings, Nones, or weird vol values
+            return [v for v in val if v and isinstance(v, str) and v != "undefined"]
+
+        # Helper to ensure string/none for multiple=False selectors
+        def get_str(key):
+            val = self._user_input.get(key)
+            if not val or val == "undefined":
+                return None
+            if isinstance(val, (list, tuple)):
+                return str(val[0]) if val else None
+            return str(val)
+
+        cons_val = get_list(CONF_CONSUMPTION_SENSORS)
+        schema_dict[vol.Required(CONF_CONSUMPTION_SENSORS, default=cons_val)] = selector.EntitySelector(
+            selector.EntitySelectorConfig(multiple=True, domain="sensor")
+        )
+        
+        for key in [CONF_GENERATION_SENSORS, CONF_DEDUCT_SENSORS, CONF_FORECAST_TODAY_REMAINING, CONF_FORECAST_TODAY_HOURLY, CONF_FORECAST_TOMORROW, CONF_POWER_LOAD_SENSORS, CONF_POWER_GEN_SENSORS, CONF_GRID_IMPORT_SENSORS, CONF_GRID_EXPORT_SENSORS]:
+            val = get_list(key)
+            schema_dict[vol.Optional(key, default=val)] = selector.EntitySelector(
+                selector.EntitySelectorConfig(multiple=True, domain="sensor")
+            )
+        
+        # Presence sensors (person / binary_sensor / zone domains)
+        presence_val = get_list(CONF_PRESENCE_SENSORS)
+        schema_dict[vol.Optional(CONF_PRESENCE_SENSORS, default=presence_val)] = selector.EntitySelector(
+            selector.EntitySelectorConfig(multiple=True, domain=["person", "binary_sensor", "zone"])
+        )
+        
+        # Inverter losses sensor (optional)
+        losses_val = get_str(CONF_INVERTER_LOSSES_SENSOR)
+        if losses_val:
+            schema_dict[vol.Optional(CONF_INVERTER_LOSSES_SENSOR, default=losses_val)] = selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            )
+        else:
+            schema_dict[vol.Optional(CONF_INVERTER_LOSSES_SENSOR)] = selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            )
+
+        for key in [CONF_BATTERY_SOC, CONF_BATTERY_CAPACITY, CONF_BATTERY_POWER, CONF_GRID_POWER, CONF_BATTERY_VOLTAGE, CONF_PRICE_BUY, CONF_PRICE_SELL]:
+            val = get_str(key)
+            if val:
+                schema_dict[vol.Optional(key, default=val)] = selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                )
+            else:
+                schema_dict[vol.Optional(key)] = selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                )
+
+        try:
+            period = int(self._user_input.get(CONF_CUSTOM_PERIOD, 14))
+        except (ValueError, TypeError):
+            period = 14
+            
+        schema_dict[vol.Optional(CONF_CUSTOM_PERIOD, default=period)] = vol.All(vol.Coerce(int), vol.Range(min=1, max=365))
+
+        schema = vol.Schema(schema_dict)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            errors=errors,
+            last_step=False,
+        )
+
+    async def async_step_investment_settings(self, user_input=None):
+        """Handle investment and ROI settings."""
+        if user_input is not None:
+            self._user_input.update(user_input)
+            return self.async_create_entry(title="", data=self._user_input)
+
+        schema = vol.Schema({
+            vol.Optional(CONF_TOTAL_SYSTEM_COST, default=self._user_input.get(CONF_TOTAL_SYSTEM_COST, 0.0)): vol.All(vol.Coerce(float), vol.Range(min=0.0)),
+            vol.Optional(CONF_BATTERY_COST, default=self._user_input.get(CONF_BATTERY_COST, 0.0)): vol.All(vol.Coerce(float), vol.Range(min=0.0)),
+            vol.Optional(CONF_BATTERY_RATED_CYCLES, default=self._user_input.get(CONF_BATTERY_RATED_CYCLES, 6000)): vol.All(vol.Coerce(int), vol.Range(min=1)),
+            vol.Optional(CONF_ANOMALY_THRESHOLD, default=self._user_input.get(CONF_ANOMALY_THRESHOLD, 2.0)): vol.All(vol.Coerce(float), vol.Range(min=1.1, max=10.0)),
+        })
+
+        return self.async_show_form(
+            step_id="investment_settings",
+            data_schema=schema,
+        )
+
+    async def async_step_deduct_settings(self, user_input=None):
+        """Handle settings for deducted sensors (Priority and Energy)."""
+        return await self._async_step_deduct_settings_logic(user_input)

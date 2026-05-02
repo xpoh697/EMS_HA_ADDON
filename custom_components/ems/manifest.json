@@ -1,0 +1,15 @@
+{
+  "domain": "ems",
+  "name": "EMS",
+  "codeowners": [
+    "@xpoh697"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/xpoh697/EMS_HA_ADDON#readme",
+  "issue_tracker": "https://github.com/xpoh697/EMS_HA_ADDON/issues",
+  "integration_type": "device",
+  "iot_class": "calculated",
+  "requirements": [],
+  "version": "v0.0.1"
+}

@@ -1,0 +1,217 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Energy Management Settings",
+        "description": "Select the sensors to form your energy management profile.",
+        "data": {
+          "name": "Name",
+          "consumption_sensors": "Total Consumption Sensors",
+          "generation_sensors": "Solar Generation Sensors",
+          "deduct_sensors": "Sensors to Deduct (Controllable Load)",
+          "power_load_sensors": "Instant Power Load Sensors (W or kW)",
+          "power_gen_sensors": "Instant Power Gen Sensors (W or kW)",
+          "forecast_today_remaining": "Forecast Remaining Today",
+          "forecast_today_hourly": "Forecast Today (Hourly Distribution)",
+          "forecast_tomorrow": "Forecast Tomorrow",
+          "battery_soc": "Battery SOC (%)",
+          "battery_capacity": "Battery Capacity",
+          "battery_power": "Battery Power (signed: + discharge, - charge)",
+          "price_buy": "Tariff: Grid Buying Price",
+          "price_sell": "Tariff: Grid Selling Price",
+          "custom_period": "Custom Calculation Period (Days)",
+          "presence_sensors": "Presence Sensors (person.* / binary_sensor.* / zone.home)",
+          "inverter_losses_sensor": "Inverter Losses Sensor (daily kWh counter, optional)",
+          "grid_import_sensors": "Grid Import Energy Sensors (kWh, total)",
+          "grid_export_sensors": "Grid Export Energy Sensors (kWh, total)",
+          "grid_power": "Real-time Grid Power (signed: + import, - export)",
+          "battery_voltage": "Battery Voltage Sensor (Volts)"
+        }
+      },
+      "deduct_settings": {
+        "title": "Settings for: {sensor_name}",
+        "description": "Set parameters for this manageable load device (sensor).\n\n**Hint:** Set Required Energy to '0' if the device absorbs ANY available surplus energy without a fixed daily quota.\n**Power (kW)** is used to strictly limit the device from running if current solar generation is less than consumption (preventing battery drain. 0 = ignore).",
+        "data": {
+          "name": "Name (for Permission Sensor)",
+          "priority": "1. Priority (lower = higher priority)",
+          "required_kwh": "2. Required Energy per day (kWh)",
+          "required_kw": "3. Peak Device Power (kW)",
+          "only_solar_or_negative_price": "4. ONLY from solar (reserves 60% of device Power from free gen by priority) or price <= 0",
+          "power_sensor": "5. Instant Power Sensor (W or kW)",
+          "active_hold_time": "6. Cycle Hold Time (min)",
+          "is_cyclic": "7. Is this a cyclic device? (Washing machine/Dishwasher)",
+          "active_sensor": "8. Active Detection Sensor (binary_sensor)"
+        }
+      },
+      "investment_settings": {
+        "title": "Investment & System Settings",
+        "description": "Configure system costs for ROI tracking and anomaly detection thresholds.",
+        "data": {
+          "total_system_cost": "Total System Cost",
+          "battery_cost": "Total Battery Cost",
+          "battery_rated_cycles": "Battery Rated Cycles",
+          "anomaly_threshold": "Anomaly Trigger Threshold (Multiplier)",
+          "arbitrage_profit_threshold": "Min. Profit Margin for Arbitrage (Price Diff)"
+        }
+      }
+    },
+    "error": {
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Energy Management Settings",
+        "description": "Select the sensors to form your energy management profile. If you add new controllable loads, you will be prompted to configure them on the next step.",
+        "data": {
+          "consumption_sensors": "Total Consumption Sensors",
+          "generation_sensors": "Solar Generation Sensors",
+          "deduct_sensors": "Sensors to Deduct (Controllable Load)",
+          "power_load_sensors": "Instant Power Load Sensors (W or kW)",
+          "power_gen_sensors": "Instant Power Gen Sensors (W or kW)",
+          "forecast_today_remaining": "Forecast Remaining Today",
+          "forecast_today_hourly": "Forecast Today (Hourly Distribution)",
+          "forecast_tomorrow": "Forecast Tomorrow",
+          "battery_soc": "Battery SOC (%)",
+          "battery_capacity": "Battery Capacity",
+          "battery_power": "Battery Power (signed: + discharge, - charge)",
+          "price_buy": "Tariff: Grid Buying Price",
+          "price_sell": "Tariff: Grid Selling Price",
+          "custom_period": "Custom Calculation Period (Days)",
+          "presence_sensors": "Presence Sensors (person.* / binary_sensor.* / zone.home)",
+          "inverter_losses_sensor": "Inverter Losses Sensor (daily kWh counter, optional)",
+          "grid_import_sensors": "Grid Import Energy Sensors (kWh, total)",
+          "grid_export_sensors": "Grid Export Energy Sensors (kWh, total)",
+          "grid_power": "Real-time Grid Power (signed: + import, - export)",
+          "battery_voltage": "Battery Voltage Sensor (Volts)"
+        }
+      },
+      "deduct_settings": {
+        "title": "Settings for: {sensor_name}",
+        "description": "Set parameters for this manageable load device (sensor).\n\n**Hint 1:** Set Required Energy to '0' if the device absorbs ANY available surplus energy without a fixed daily quota.\n**Hint 2:** Power (kW) is used to strictly limit the device from running if current solar generation is less than consumption (preventing battery drain. 0 = ignore).",
+        "data": {
+          "name": "Name (for Permission Sensor)",
+          "priority": "1. Priority (lower = higher priority)",
+          "required_kwh": "2. Required Energy per day (kWh)",
+          "required_kw": "3. Peak Device Power (kW)",
+          "only_solar_or_negative_price": "4. ONLY from solar (reserves 60% of device Power from free gen by priority) or price <= 0",
+          "power_sensor": "5. Instant Power Sensor (W or kW)",
+          "active_hold_time": "6. Cycle Hold Time (min)",
+          "is_cyclic": "7. Is this a cyclic device? (Washing machine/Dishwasher)",
+          "active_sensor": "8. Active Detection Sensor (binary_sensor)"
+        }
+      },
+      "investment_settings": {
+        "title": "Investment & System Settings",
+        "description": "Update system costs and anomaly thresholds.",
+        "data": {
+          "total_system_cost": "Total System Cost",
+          "battery_cost": "Total Battery Cost",
+          "battery_rated_cycles": "Battery Rated Cycles",
+          "anomaly_threshold": "Anomaly Trigger Threshold (Multiplier)",
+          "arbitrage_profit_threshold": "Min. Profit Margin for Arbitrage (Price Diff)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery_degradation": {
+        "state_attributes": {
+          "wear_cost_per_kwh_throughput": { "name": "Wear cost per kWh (throughput)" },
+          "arbitrage_profit_threshold": { "name": "Arbitrage profit threshold" },
+          "battery_investment": { "name": "Battery investment" },
+          "rated_cycles": { "name": "Rated cycles" },
+          "note": {
+            "name": "Note",
+            "state": {
+              "arbitrage_note": "Arbitrage is profitable ONLY if the buy/sell price difference exceeds the threshold."
+            }
+          }
+        }
+      },
+      "payback": {
+        "state_attributes": {
+          "total_investment": { "name": "Total investment" },
+          "cumulative_savings": { "name": "Cumulative savings" },
+          "remaining_amount": { "name": "Remaining amount" },
+          "average_daily_saving": { "name": "Average daily saving" },
+          "estimated_payback_days": { "name": "Estimated payback days" },
+          "estimated_payback_date": {
+            "name": "Estimated payback date",
+            "state": {
+              "never": "Never"
+            }
+          }
+        }
+      },
+      "anomaly_detection": {
+        "state_attributes": {
+          "status": {
+            "name": "Status",
+            "state": {
+              "normal": "Normal",
+              "anomaly_high_consumption": "Anomaly: High Consumption"
+            }
+          },
+          "expected_kw": { "name": "Expected load (kW)" },
+          "actual_kw": { "name": "Actual load (kW)" },
+          "threshold_multiplier": { "name": "Threshold multiplier" },
+          "anomaly_detected": { "name": "Anomaly detected" }
+        }
+      },
+      "market_strategy": {
+        "state": {
+          "standard": "Standard Operation",
+          "price_limit_not_met": "No price window",
+          "unprofitable_arbitrage": "No price window",
+          "charging": "Charging",
+          "discharging": "Discharging",
+          "preparing_arbitrage": "Waiting for arbitrage",
+          "survival_mode": "Survival mode"
+        }
+      },
+      "avg_power_load": {
+        "name": "Averaged load power (10 min)"
+      },
+      "avg_power_gen": {
+        "name": "Averaged generation power (10 min)"
+      },
+      "bms_learned_profile": {
+        "name": "BMS Learned Charge Profile"
+      },
+      "grid_balance": {
+        "name": "Live Grid Balance"
+      },
+      "inverter_mode": {
+        "state": {
+          "buy": "Grid Buying",
+          "sale_pv": "Selling (Solar Only)",
+          "sale_pv_bat": "Selling (Solar + Battery)",
+          "sale_pv_no_bat": "Selling (Solar Only)",
+          "stop_sale": "Stop Sale",
+          "bat_emergency": "Battery Emergency",
+          "no_pv_sale_no_bat": "Waiting for Negative (Battery OK)"
+        }
+      }
+    },
+    "number": {
+      "price_buy_limit": { "name": "Buy Price Limit" },
+      "price_sell_limit": { "name": "Sell Price Limit" },
+      "price_stop_sell": { "name": "Stop Sell Threshold" },
+      "price_sell_only_pv": { "name": "Sell PV Only Limit" },
+      "price_tolerance": { "name": "Buy Price Tolerance" },
+      "price_sell_tolerance": { "name": "Sell Price Tolerance" },
+      "battery_max_power": { "name": "Battery Max Power" },
+      "ai_charge_limit_soc": { "name": "Charge Limit (Max SOC)" },
+      "ai_discharge_limit_soc": { "name": "Discharge Limit (Min SOC)" },
+      "min_soc_buy": { "name": "Minimum SOC Level" },
+      "sale_pv_no_bat_max_hour": { "name": "Max Hour for Sell PV Only" },
+      "arbitrage_profit_threshold": { "name": "Arbitrage Profit Threshold" }
+    }
+  }
+}
