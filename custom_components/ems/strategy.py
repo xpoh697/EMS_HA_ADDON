@@ -63,6 +63,14 @@ class StrategyEngine:
         is_tom = h_abs >= 24
         return f"{h_abs % 24:0>2}:00" + (" (Завтра)" if is_tom else "")
 
+    def _calculate_amps(self, power_kw: float) -> float:
+        """Helper to convert kW to Amps based on current battery voltage."""
+        batt_v = 51.2 # Default
+        if self.manager.battery_voltage_sensor:
+             v_now = self.manager.get_sensor_float(self.manager.battery_voltage_sensor)
+             if v_now and v_now > 10.0: batt_v = v_now
+        return round_f((float(power_kw) * 1000.0) / batt_v, 1)
+
     def update_strategies(self):
         """Main update loop called periodically to recalculate plan."""
         now = datetime.now(self.manager.tz)

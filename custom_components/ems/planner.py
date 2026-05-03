@@ -36,10 +36,10 @@ class InverterPlanner:
         if source == "user":
             self.save_schedule()
 
-    def set_mode(self, mode: str, hour: Optional[int] = None, power: float = 0.0, target_soc: float = 0.0, source: str = "system"):
+    def set_mode(self, mode: str, hour: Optional[int] = None, power: float = 0.0, target_soc: float = 0.0, amps: float = 0.0, source: str = "system"):
         """Convenience method for setting a mode."""
         h_abs = hour if hour is not None else self._get_hour_abs(dt_util.now())
-        self.propose(h_abs, mode, power=power, target_soc=target_soc, source=source)
+        self.propose(h_abs, mode, power=power, target_soc=target_soc, amps=amps, source=source)
 
     def get_plan_at(self, dt: datetime) -> Dict[str, Any]:
         """Get the planned state for a specific datetime."""

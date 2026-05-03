@@ -103,6 +103,14 @@ class BuyStrategyEngine:
              # Logic from strategy.py would go here to set is_waiting_for_neg
              pass
 
+        # Calculate amps (v11.6.530)
+        batt_v = 51.2 # Default fallback
+        if self.manager.battery_voltage_sensor:
+             v_now = self.manager.get_sensor_float(self.manager.battery_voltage_sensor)
+             if v_now and v_now > 10.0: batt_v = v_now
+        
+        target_amps = round_f((max_p * 1000.0) / batt_v, 1)
+
         active_count = 0
         for h_rel in target_hours:
             h_abs_target = h_offset + h_rel
@@ -111,6 +119,7 @@ class BuyStrategyEngine:
                 mode="buy",
                 power=max_p,
                 target_soc=target_soc,
+                amps=target_amps,
                 source="system"
             )
             active_count += 1

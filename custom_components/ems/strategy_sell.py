@@ -104,6 +104,14 @@ class SellStrategyEngine:
         target_soc = float(self.manager.get_setting(CONF_AI_DISCHARGE_LIMIT, 20.0))
         max_p = float(self.manager.get_setting(CONF_BATTERY_MAX_POWER, 5.0))
 
+        # Calculate amps (v11.6.530)
+        batt_v = 51.2 # Default fallback
+        if self.manager.battery_voltage_sensor:
+             v_now = self.manager.get_sensor_float(self.manager.battery_voltage_sensor)
+             if v_now and v_now > 10.0: batt_v = v_now
+        
+        target_amps = round_f((max_p * 1000.0) / batt_v, 1)
+
         for h_rel in active_hours:
             h_abs_target = h_offset + h_rel
             planner.propose(
@@ -111,6 +119,7 @@ class SellStrategyEngine:
                 mode="sale_pv_bat",
                 power=max_p,
                 target_soc=target_soc,
+                amps=target_amps,
                 source="system"
             )
 
