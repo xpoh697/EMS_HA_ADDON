@@ -128,10 +128,13 @@ class BuyStrategyEngine:
                 is_active_now = True
 
         state = "idle"
+        decision = "Ожидание окна"
         if is_active_now:
             state = "buying"
+            decision = "Активная покупка"
         elif active_count > 0:
             state = "scheduled"
+            decision = f"Запланировано {active_count}ч"
 
         return {
             "state": state,
@@ -139,5 +142,9 @@ class BuyStrategyEngine:
             "first_negative_hour": first_neg_h,
             "target_soc": target_soc,
             "today_prices": today_prices,
-            "tomorrow_prices": tomorrow_prices
+            "tomorrow_prices": tomorrow_prices,
+            "recommended_power_kw": max_p if is_active_now else 0.0,
+            "recommended_amps": target_amps if is_active_now else 0.0,
+            "arbitrage_decision": decision,
+            "strategy_candidates": [self.manager.strategy_engine._format_h(h_offset + h) for h in target_hours]
         }

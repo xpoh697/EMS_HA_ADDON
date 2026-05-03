@@ -90,7 +90,16 @@ class StrategyEngine:
         # 4. Arbitration & Finalization (Security, sunrise guard, emergency)
         self._arbitrate_and_finalize(planner, now)
         
-        # 5. Store results for sensors
+        # 5. Enrich results for sensors
+        common_data = {
+            "deg_cost": self.get_battery_degradation_cost(),
+            "profit_threshold": float(self.manager.get_setting(CONF_ARBITRAGE_PROFIT_THRESHOLD, 0.0)),
+            "analyzed_window": "48ч (Модульный)",
+        }
+        
+        buy_res.update(common_data)
+        sell_res.update(common_data)
+        
         self._strategy_cache["market_strategy_buy"] = {"res": buy_res, "ts": now}
         self._strategy_cache["market_strategy_sell"] = {"res": sell_res, "ts": now}
 
