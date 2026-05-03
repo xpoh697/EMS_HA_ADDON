@@ -189,7 +189,17 @@ class StrategyEngine:
         cached = self._strategy_cache.get(cache_key)
         if cached:
              return cached["res"]
-        return {}
+        
+        # Default empty structure to prevent KeyErrors in sensors
+        return {
+            "state": "initializing",
+            "today_prices": {},
+            "tomorrow_prices": {},
+            "allocated_kwh": 0.0,
+            "allocated_hours": [],
+            "schedule": [],
+            "debug": {}
+        }
 
     def get_budget_and_permissions(self, *args, **kwargs) -> Dict[str, Any]:
         """Calculates available energy budgets and survival parameters."""

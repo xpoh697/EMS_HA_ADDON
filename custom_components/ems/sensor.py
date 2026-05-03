@@ -2969,7 +2969,7 @@ class MarketStrategySensor(SensorEntity):
     @property
     def native_value(self):
         res = self.manager.get_market_strategy(self.mode)
-        return res["state"]
+        return res.get("state", "initializing")
 
     @property
     def extra_state_attributes(self):
