@@ -231,6 +231,11 @@ class EnergyProfileManager:
         return dt_util.now()
 
     @property
+    def tz(self):
+        """Home Assistant local timezone info."""
+        return dt_util.DEFAULT_TIME_ZONE
+
+    @property
     def is_weekend(self) -> bool:
         """Determines if today is a weekend day (Sat/Sun) or holiday."""
         return self.day_type >= 5
