@@ -112,6 +112,7 @@ class BuyStrategyEngine:
         target_amps = round_f((max_p * 1000.0) / batt_v, 1)
 
         active_count = 0
+        is_active_now = False
         for h_rel in target_hours:
             h_abs_target = h_offset + h_rel
             planner.propose(
@@ -123,8 +124,17 @@ class BuyStrategyEngine:
                 source="system"
             )
             active_count += 1
+            if h_rel == cur_hour:
+                is_active_now = True
+
+        state = "idle"
+        if is_active_now:
+            state = "buying"
+        elif active_count > 0:
+            state = "scheduled"
 
         return {
+            "state": state,
             "active_hours": target_hours,
             "first_negative_hour": first_neg_h,
             "target_soc": target_soc,

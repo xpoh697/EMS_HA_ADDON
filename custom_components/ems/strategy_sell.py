@@ -112,6 +112,8 @@ class SellStrategyEngine:
         
         target_amps = round_f((max_p * 1000.0) / batt_v, 1)
 
+        is_active_now = False
+        active_count = 0
         for h_rel in active_hours:
             h_abs_target = h_offset + h_rel
             planner.propose(
@@ -122,8 +124,18 @@ class SellStrategyEngine:
                 amps=target_amps,
                 source="system"
             )
+            active_count += 1
+            if h_rel == cur_hour:
+                is_active_now = True
+
+        state = "idle"
+        if is_active_now:
+            state = "selling"
+        elif active_count > 0:
+            state = "scheduled"
 
         return {
+            "state": state,
             "active_hours": active_hours,
             "target_soc": target_soc,
             "today_prices": today_prices,
