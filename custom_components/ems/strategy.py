@@ -206,3 +206,53 @@ class StrategyEngine:
         # This will be refined as we move Sunrise Guard here
         res = {"can_sell": True, "survival_soc": 15.0}
         return res
+
+    def get_gen_forecast_coefficient(self, forecast_value: float, prof_gen: Dict[str, Any], hour_start: int, hour_end: int) -> float:
+        """Calculates scaling factor between historical profile and today's forecast."""
+        try:
+            sum_hist = 0.0
+            for h in range(hour_start, hour_end):
+                sum_hist += float(normalize_float(prof_gen.get(str(h), 0.0)))
+            
+            if sum_hist < 0.1:
+                return 1.0
+            return float(forecast_value / sum_hist)
+        except Exception:
+            return 1.0
+
+    def run_investment_simulation(self, extra_batt_kwh: float = 0.0, pv_multiplier: float = 1.0) -> Dict[str, Any]:
+        """Analyzes historical data to estimate savings with hardware upgrades."""
+        man = self.manager
+        savings_store = man.data.get("savings", {})
+        
+        # Calculate current average monthly savings
+        total_30d = 0.0
+        count = 0
+        now = datetime.now(man.tz)
+        for d, v in savings_store.items():
+            try:
+                dt_d = datetime.strptime(d, "%Y-%m-%d").replace(tzinfo=man.tz)
+                if (now - dt_d).days <= 30:
+                    if isinstance(v, dict):
+                        total_30d += v.get("total", 0.0)
+                        count += 1
+            except: continue
+        
+        avg_monthly = total_30d if count >= 28 else (total_30d / count * 30 if count > 0 else 0.0)
+        
+        # Heuristic for upgrades based on system scaling
+        benefit_factor = 1.0
+        if extra_batt_kwh > 0:
+            _, current_cap, _ = man.get_battery_state()
+            if current_cap > 0:
+                # Diminishing returns on extra battery
+                benefit_factor += min(0.35, (extra_batt_kwh / current_cap) * 0.15)
+        
+        benefit_factor *= pv_multiplier
+        extra_monthly = round_f(float(avg_monthly * (benefit_factor - 1.0)), 2)
+        
+        return {
+            "monthly_estimate": extra_monthly,
+            "days_simulated": count,
+            "benefit_factor": round_f(benefit_factor, 2)
+        }
