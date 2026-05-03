@@ -36,6 +36,11 @@ class InverterPlanner:
         if source == "user":
             self.save_schedule()
 
+    def set_mode(self, mode: str, hour: Optional[int] = None, power: float = 0.0, target_soc: float = 0.0, source: str = "system"):
+        """Convenience method for setting a mode."""
+        h_abs = hour if hour is not None else self._get_hour_abs(dt_util.now())
+        self.propose(h_abs, mode, power=power, target_soc=target_soc, source=source)
+
     def get_plan_at(self, dt: datetime) -> Dict[str, Any]:
         """Get the planned state for a specific datetime."""
         h_abs = self._get_hour_abs(dt)
@@ -69,10 +74,17 @@ class InverterPlanner:
         return res
 
     def cleanup(self):
-        """Remove past hours from schedule."""
-        cur_h = self._get_hour_abs(dt_util.now())
-        to_del = [h for h in self.schedule if h < cur_h]
+        """Remove past hours and future system plans to allow re-planning."""
+        now_h = self._get_hour_abs(dt_util.now())
+        
+        # 1. Remove past
+        to_del = [h for h in self.schedule if h < now_h]
         for h in to_del:
+            del self.schedule[h]
+            
+        # 2. Remove future system plans (to allow fresh planning by strategies)
+        to_del_sys = [h for h, v in self.schedule.items() if v.get("source") == "system"]
+        for h in to_del_sys:
             del self.schedule[h]
 
     def _load_schedule(self):

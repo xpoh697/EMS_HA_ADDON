@@ -12,8 +12,8 @@ from .const import (
     CONF_BATTERY_MAX_POWER,
     CONF_AI_DISCHARGE_LIMIT,
     CONF_MIN_SOC_BAT,
-    CONF_BATTERY_CYCLE_COST,
-    CONF_BATTERY_MAX_CYCLES,
+    CONF_BATTERY_COST,
+    CONF_BATTERY_RATED_CYCLES,
     CONF_BATTERY_CAPACITY,
 )
 
@@ -39,13 +39,19 @@ class StrategyEngine:
     def get_battery_degradation_cost(self) -> float:
         """Calculates the wear-and-tear cost per kWh based on battery specs."""
         try:
-            cost = float(self.manager.get_setting(CONF_BATTERY_CYCLE_COST, 5000.0))
-            cycles = float(self.manager.get_setting(CONF_BATTERY_MAX_CYCLES, 6000.0))
-            cap = float(self.manager.get_setting(CONF_BATTERY_CAPACITY, 10.0))
-            if cycles < 1 or cap < 0.1: return 0.02
-            # Total energy through life = Capacity * Cycles * Efficiency (approx 0.9)
+            # Using defaults from TS if not configured
+            cost = float(self.manager.get_setting(CONF_BATTERY_COST, 5000.0) or 5000.0)
+            cycles = float(self.manager.get_setting(CONF_BATTERY_RATED_CYCLES, 6000.0) or 6000.0)
+            cap = float(self.manager.get_setting(CONF_BATTERY_CAPACITY, 10.0) or 10.0)
+            
+            if cycles < 1 or cap < 0.1: 
+                return 0.02
+            
+            # Total energy through life = Capacity * Cycles * Efficiency/DOD (approx 0.9)
+            # Formula: TotalCost / (Total kWh through life)
             return float(cost / (cycles * cap * 0.9))
-        except Exception:
+        except Exception as e:
+            _LOGGER.warning("Error calculating battery degradation cost: %s. Using default 0.02", e)
             return 0.02
 
     def get_hourly_accuracy_coeff(self, hour: int) -> tuple[float, float]:
@@ -62,16 +68,120 @@ class StrategyEngine:
         now = datetime.now(self.manager.tz)
         planner = self.manager.planner
         
-        # 1. Cleanup past plan
+        # 1. Cleanup past plan (system entries only)
         planner.cleanup()
         
-        # 2. Run strategies and propose to planner
+        # 2. Baseline Planning (Filling the 48h grid with defaults)
+        self._fill_baseline_plan(planner, now)
+        
+        # 3. Strategy Overlays (Buy/Sell specific windows)
+        # These engines now "propose" modes to the planner
         buy_res = self.buy_engine.calculate(planner, now)
         sell_res = self.sell_engine.calculate(planner, now)
         
-        # 3. Store results for sensors
+        # 4. Arbitration & Finalization (Security, sunrise guard, emergency)
+        self._arbitrate_and_finalize(planner, now)
+        
+        # 5. Store results for sensors
         self._strategy_cache["market_strategy_buy"] = {"res": buy_res, "ts": now}
         self._strategy_cache["market_strategy_sell"] = {"res": sell_res, "ts": now}
+
+    def _fill_baseline_plan(self, planner, now):
+        """Fills all 48 hours with a 'Natural' mode based on price floors and daytime."""
+        from .const import CONF_PRICE_STOP_SELL, CONF_SALE_PV_NO_BAT_MAX_HOUR
+        price_stop_sell = float(self.manager.get_setting(CONF_PRICE_STOP_SELL, 0.0))
+        max_morning_hour = int(self.manager.get_setting(CONF_SALE_PV_NO_BAT_MAX_HOUR, 13))
+        
+        h_abs_start = int(now.timestamp() // 3600)
+        
+        for i in range(48):
+            h_abs = h_abs_start + i
+            dt = datetime.fromtimestamp(h_abs * 3600, self.manager.tz)
+            
+            # Use sell price for baseline decisions
+            price = self.manager.get_price("sell", dt.strftime("%Y-%m-%d"), dt.hour)
+            
+            # Default Baseline
+            mode = "sale_pv"
+            
+            # 1. Stop Sale Floor
+            if price is not None and price < price_stop_sell:
+                mode = "stop_sale"
+            
+            # 2. Morning PV Sale (Saving space for negative prices if expected)
+            # This logic should ideally check if a 'minus' is coming later today
+            if dt.hour < max_morning_hour:
+                # Simple heuristic: if we expect buy opportunity later, save space
+                # For now, keep it as 'sale_pv' but we can upgrade to 'sale_pv_no_bat'
+                pass
+                
+            planner.set_mode(mode, hour=h_abs, source="system")
+
+    def _arbitrate_and_finalize(self, planner, now):
+        """Final pass to enforce high-priority constraints and waiting logic."""
+        from .const import CONF_MIN_SOC_BAT, CONF_SALE_PV_NO_BAT_MAX_HOUR
+        min_soc = float(self.manager.get_setting(CONF_MIN_SOC_BAT, 10.0))
+        max_morning_h = int(self.manager.get_setting(CONF_SALE_PV_NO_BAT_MAX_HOUR, 13))
+        
+        h_abs_now = int(now.timestamp() // 3600)
+        soc_now, _, _ = self.manager.get_battery_state(soc_default=100.0)
+        
+        # 0. Get info from Buy Strategy about future negative prices
+        buy_info = self._strategy_cache.get("market_strategy_buy", {}).get("res", {})
+        first_neg_h_rel = buy_info.get("first_negative_hour") # Relative to today 00:00 (0..47)
+        h_abs_today_00 = int(datetime(now.year, now.month, now.day).timestamp() // 3600)
+        
+        # 1. Run a predictive simulation using the current (proposed) plan
+        full_schedule = {}
+        for i in range(48):
+            full_schedule[h_abs_now + i] = planner.get_plan(h_abs_now + i)
+
+        _, sim_log, _ = self.simulation_engine.run_soc_simulation(
+            soc_now, range(h_abs_now, h_abs_now + 48), now, planner_schedule=full_schedule
+        )
+        
+        for i in range(48):
+            h_abs = h_abs_now + i
+            current_plan = planner.get_plan(h_abs)
+            
+            # USER override is sacred
+            if current_plan.get("source") == "user":
+                continue
+                
+            dt = datetime.fromtimestamp(h_abs * 3600, self.manager.tz)
+            
+            # Projected SOC at the START of this hour
+            prev_h_abs = h_abs - 1
+            if i == 0:
+                proj_soc = soc_now
+            else:
+                prev_h = int(prev_h_abs % 24)
+                prev_is_tom = prev_h_abs >= (h_abs_today_00 + 24)
+                prev_key = f"{prev_h:02d}:59" + (" (Завтра)" if prev_is_tom else "")
+                proj_soc = sim_log.get(prev_key, {}).get("soc", soc_now)
+            
+            # --- Arbitration Logic ---
+            
+            # Priority 1: Emergency SOC Protection
+            if proj_soc <= min_soc:
+                if current_plan.get("mode") in ["sale_pv_bat", "sale_pv"]:
+                    planner.set_mode("bat_emergency", hour=h_abs, source="system")
+                    continue # Emergency overrides everything else
+            
+            # Priority 2: Wait for Negative Price Logic (TZ 4.2.2 & 5)
+            if first_neg_h_rel is not None:
+                h_rel = h_abs - h_abs_today_00
+                if h_rel < first_neg_h_rel:
+                    # If this is a morning hour and we have a 'minus' coming later
+                    if dt.hour < max_morning_h:
+                        # TZ 5: sale_pv_no_bat (sell PV, but don't charge battery)
+                        if current_plan.get("mode") == "sale_pv":
+                             planner.set_mode("sale_pv_no_bat", hour=h_abs, source="system")
+                    
+                    # TZ 4.2.2: If it's the hour just before negative price, we might want no_pv_sale_no_bat
+                    # to ensure we have maximum space for the negative price window.
+                    if h_rel == first_neg_h_rel - 1:
+                        planner.set_mode("no_pv_sale_no_bat", hour=h_abs, source="system")
 
     def get_market_strategy(self, mode: str) -> Dict[str, Any]:
         """Legacy access for sensors to get pre-calculated strategy results."""
@@ -83,6 +193,6 @@ class StrategyEngine:
 
     def get_budget_and_permissions(self, *args, **kwargs) -> Dict[str, Any]:
         """Calculates available energy budgets and survival parameters."""
-        # Simplified for now to keep the coordination logic clean
+        # This will be refined as we move Sunrise Guard here
         res = {"can_sell": True, "survival_soc": 15.0}
         return res
