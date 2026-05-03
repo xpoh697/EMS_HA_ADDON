@@ -71,12 +71,17 @@ class SimulationEngine:
         planner_schedule: Optional[Dict[int, Dict[str, Any]]] = None,
         house_profile_override: Optional[str] = None,
         ignore_blended: bool = False,
-        no_solar: bool = False
+        no_solar: bool = False,
+        **kwargs
     ) -> Tuple[float, Dict[str, Any], float]:
         """
         Universal SOC simulation engine.
-        Now uses the planner schedule and mode configurations for constraints.
+        Supports both new planner_schedule and legacy commands/strategy constraints.
         """
+        # Handle legacy or additional strategy constraints
+        commands = kwargs.get("commands", {})
+        no_battery_charge_until = kwargs.get("no_battery_charge_until")
+        pv_curtail_hours = kwargs.get("pv_curtail_hours", [])
         if not sim_range:
             return float(start_soc), {}, 0.0
 
@@ -185,15 +190,29 @@ class SimulationEngine:
                 idle_p = float(prof_losses.get(h_str, 0.05))
                 expected_cons_kw += idle_p
 
-            if no_solar:
+            if no_solar or h_abs in pv_curtail_hours:
                 expected_gen_kw = 0.0
 
-            # 3. Apply Mode Policy from Planner
-            plan = (planner_schedule or {}).get(int(h_abs), {"mode": "sale_pv", "power": 0.0})
+            # 3. Apply Mode Policy from Planner or direct commands
+            plan = (planner_schedule or {}).get(int(h_abs))
+            if not plan and int(h_abs) in commands:
+                # Backward compatibility for simple power commands
+                p_val = float(commands[int(h_abs)])
+                plan = {
+                    "mode": "buy" if p_val > 0 else ("sale_pv_bat" if p_val < 0 else "sale_pv"),
+                    "power": abs(p_val)
+                }
+            
+            if not plan:
+                plan = {"mode": "sale_pv", "power": 0.0}
+
             mode_name = plan.get("mode", "sale_pv")
             mode_cfg = get_mode_config(mode_name)
             
-            # PV Generation Policy
+            # Additional strategy overrides
+            allow_charge = mode_cfg.allow_charge
+            if no_battery_charge_until is not None and h_abs < no_battery_charge_until:
+                allow_charge = False
             _h_price = float(normalize_float(all_buy_prices.get(int(h_abs), 0.1)))
             if mode_cfg.gen_policy == GenPolicy.FORBIDDEN:
                 expected_gen_kw = 0.0
@@ -217,10 +236,10 @@ class SimulationEngine:
             # Mode constraints on charge/discharge
             if not mode_cfg.allow_discharge:
                 # House is grid-powered or discharge is forbidden
-                total_net_kw = (rem_gen if mode_cfg.allow_charge else 0.0) + cmd_p
+                total_net_kw = (rem_gen if allow_charge else 0.0) + cmd_p
             else:
                 # Battery covers remaining house load
-                net_pv = rem_gen if mode_cfg.allow_charge else 0.0
+                net_pv = rem_gen if allow_charge else 0.0
                 total_net_kw = net_pv - rem_cons + cmd_p
 
             # 5. Battery Delta
