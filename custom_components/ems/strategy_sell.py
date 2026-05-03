@@ -137,6 +137,13 @@ class SellStrategyEngine:
             state = "scheduled"
             decision = f"Запланировано {active_count}ч"
 
+        # Calculate actual analyzed window (v11.6.535)
+        last_h = max(active_hours) if active_hours else cur_hour
+        # Better: use all available sell prices
+        all_s_h = [int(h) for h in today_prices.keys()] + [int(h)+24 for h in tomorrow_prices.keys()]
+        last_h = max(all_s_h) if all_s_h else cur_hour
+        window_str = self.manager.strategy_engine._format_h(h_offset + last_h)
+
         return {
             "state": state,
             "active_hours": active_hours,
@@ -146,5 +153,6 @@ class SellStrategyEngine:
             "recommended_power_kw": max_p if is_active_now else 0.0,
             "recommended_amps": target_amps if is_active_now else 0.0,
             "arbitrage_decision": decision,
-            "strategy_candidates": [self.manager.strategy_engine._format_h(h_offset + h) for h in active_hours]
+            "strategy_candidates": [self.manager.strategy_engine._format_h(h_offset + h) for h in active_hours],
+            "analyzed_window": window_str
         }

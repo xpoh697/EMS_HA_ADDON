@@ -136,6 +136,10 @@ class BuyStrategyEngine:
             state = "scheduled"
             decision = f"Запланировано {active_count}ч"
 
+        # Calculate actual analyzed window (v11.6.535)
+        last_h = max(all_buy_prices_filtered.keys()) if all_buy_prices_filtered else cur_hour
+        window_str = self.manager.strategy_engine._format_h(h_offset + last_h)
+
         return {
             "state": state,
             "active_hours": target_hours,
@@ -146,5 +150,6 @@ class BuyStrategyEngine:
             "recommended_power_kw": max_p if is_active_now else 0.0,
             "recommended_amps": target_amps if is_active_now else 0.0,
             "arbitrage_decision": decision,
-            "strategy_candidates": [self.manager.strategy_engine._format_h(h_offset + h) for h in target_hours]
+            "strategy_candidates": [self.manager.strategy_engine._format_h(h_offset + h) for h in target_hours],
+            "analyzed_window": window_str
         }

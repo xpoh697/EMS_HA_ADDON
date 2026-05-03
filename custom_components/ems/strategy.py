@@ -94,7 +94,6 @@ class StrategyEngine:
         common_data = {
             "deg_cost": self.get_battery_degradation_cost(),
             "profit_threshold": float(self.manager.get_setting(CONF_ARBITRAGE_PROFIT_THRESHOLD, 0.0)),
-            "analyzed_window": "48ч (Модульный)",
         }
         
         buy_res.update(common_data)
