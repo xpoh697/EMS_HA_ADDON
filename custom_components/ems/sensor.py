@@ -2574,7 +2574,7 @@ class BatteryEndOfDaySOCSensor(SensorEntity):
             
         buy_sim = buy_strat.get("buy_simulation", {})
         no_battery_charge_until = buy_sim.get("no_battery_charge_until")
-        pv_curtail_hours = buy_sim.get("pv_curtail_hours")
+        pv_curtail_hours = buy_sim.get("pv_curtail_hours") or []
 
         # 2. Run Unified Simulation Engine
         # v11.6.355: Comprehensive Sell Debug

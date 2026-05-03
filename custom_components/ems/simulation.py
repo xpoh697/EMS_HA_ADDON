@@ -79,9 +79,9 @@ class SimulationEngine:
         Supports both new planner_schedule and legacy commands/strategy constraints.
         """
         # Handle legacy or additional strategy constraints
-        commands = kwargs.get("commands", {})
+        commands = kwargs.get("commands") or {}
         no_battery_charge_until = kwargs.get("no_battery_charge_until")
-        pv_curtail_hours = kwargs.get("pv_curtail_hours", [])
+        pv_curtail_hours = kwargs.get("pv_curtail_hours") or []
         if not sim_range:
             return float(start_soc), {}, 0.0
 
