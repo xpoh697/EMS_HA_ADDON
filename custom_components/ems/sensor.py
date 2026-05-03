@@ -300,6 +300,10 @@ class EnergyProfileManager:
     def __init__(self, hass, entry):
         self.hass = hass
         self.entry = entry
+        
+        # Initialize basic data structures early to avoid AttributeErrors in sub-engines
+        self.settings = {}
+        self.data = {}
 
         config_data = {**entry.data, **entry.options}
 
@@ -431,11 +435,8 @@ class EnergyProfileManager:
         except (ValueError, TypeError):
             self.custom_period = 14
 
-        # Internal configuration from UI (Number/Switch defaults handled by platform)
-        self.settings = {}
-
         # Array to store history of consumption per hour. e.g. "13" -> [1.3, 1.2, 1.5...]
-        self.data = {}
+        # (Initialized early above)
 
         self.current_consumption_base = 0.0
         self.current_consumption_total = 0.0
@@ -626,6 +627,10 @@ class EnergyProfileManager:
 
         # Recalculate base from total and deduct
         self.current_consumption_base = max(0.0, self.current_consumption_total - self.current_hourly_deduct)
+
+        # IMPORTANT: Reload the planner schedule now that we have the data from storage
+        if hasattr(self, "planner"):
+            self.planner._load_schedule()
 
     async def async_save(self):
         self.data["learned_standby_power"] = self.learned_standby_power
